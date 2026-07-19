@@ -1,0 +1,69 @@
+# ─── Node Modules ────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# ─── Build Output ────────────────────────────────────────────
+frontend/dist/
+frontend/build/
+backend/dist/
+backend/build/
+
+# ─── Environment Variables ───────────────────────────────────
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test.local
+.env.production
+.env.production.local
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+backend/.env
+backend/.env.local
+backend/.env.production
+
+# ─── Logs ────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Cache ───────────────────────────────────────────────────
+.cache/
+.parcel-cache/
+.vite/
+frontend/.vite/
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# ─── OS Files ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDE / Editor ────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ─── Database / Sensitive ────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+
+# ─── Test Coverage ───────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Temp Files ──────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
