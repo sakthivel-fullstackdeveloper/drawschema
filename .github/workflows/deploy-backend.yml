@@ -1,0 +1,51 @@
+name: 🚀 Deploy DrawSchema Backend to cPanel on Push to Main
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the repository
+      - name: ⬇️ Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 3. Create Passenger restart trigger file
+      - name: 🔄 Create Passenger Restart Trigger
+        run: |
+          mkdir -p backend/tmp
+          echo "Deploy Date: $(date)" > backend/tmp/restart.txt
+
+      # 4. Deploy backend files to cPanel via FTP
+      - name: 📤 Deploy via FTP to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_BACKEND_USERNAME }}
+          password: ${{ secrets.FTP_BACKEND_PASSWORD }}
+          port: 21
+          protocol: ftp
+          local-dir: ./backend/
+          server-dir: ${{ secrets.FTP_BACKEND_REMOTE_DIR }}
+          dangerous-clean-slate: false
+          exclude: |
+            **/node_modules/**
+            **/.env
+            **/.env.*
+            **/*.sql
+            **/.git*
+            **/.git*/**
