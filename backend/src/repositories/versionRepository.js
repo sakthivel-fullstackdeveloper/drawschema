@@ -158,6 +158,16 @@ class VersionRepository {
       ...options
     });
   }
+
+  async findLatestByProjectId(projectId, connection = null) {
+    const options = connection ? { transaction: connection } : {};
+    const version = await ProjectVersion.findOne({
+      where: { project_id: projectId },
+      order: [['version_number', 'DESC']],
+      ...options
+    });
+    return version ? version.toJSON() : null;
+  }
 }
 
 module.exports = new VersionRepository();

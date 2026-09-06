@@ -106,6 +106,14 @@ class VersionService {
     const snapshot = await this.getProjectSnapshot(projectId);
     const snapshotJson = this.compressSnapshot(snapshot);
 
+    // If auto-save, skip creating a duplicate snapshot if schema hasn't changed
+    if (isAutoSave) {
+      const latest = await versionRepository.findLatestByProjectId(projectId);
+      if (latest && latest.snapshot_json === snapshotJson) {
+        return latest;
+      }
+    }
+
     const version = await runTransaction(async (connection) => {
       const versionNumber = await versionRepository.getNextVersionNumber(projectId, connection);
       

@@ -78,9 +78,10 @@ const hasPath = (graph: Record<number, number[]>, start: number, target: number,
 // Async Thunks
 export const loadSchema = createAsyncThunk(
   'schema/loadSchema',
-  async (projectId: number) => {
+  async (projectId: number, thunkAPI) => {
     const response: any = await api.get(`/schema/${projectId}`);
     if (response.success) {
+      thunkAPI.dispatch(schemaSlice.actions.setChangesCount(0));
       return {
         tables: response.data.tables,
         relationships: response.data.relationships
@@ -557,6 +558,7 @@ export const saveVersion = createAsyncThunk(
     if (!project) throw new Error('No active project');
     try {
       const version = await versionApi.createVersion(project.id, name, description, false);
+      thunkAPI.dispatch(schemaSlice.actions.setChangesCount(0));
       thunkAPI.dispatch(schemaSlice.actions.showToast({ message: 'Version snapshot created!', type: 'success' }));
       return version;
     } catch (err: any) {
@@ -575,6 +577,7 @@ export const restoreVersion = createAsyncThunk(
     try {
       thunkAPI.dispatch(schemaSlice.actions.showToast({ message: 'Restoring version...', type: 'info' }));
       const restored = await versionApi.restoreVersion(project.id, versionId);
+      thunkAPI.dispatch(schemaSlice.actions.setChangesCount(0));
       thunkAPI.dispatch(schemaSlice.actions.showToast({ message: 'Version restored successfully!', type: 'success' }));
       thunkAPI.dispatch(loadVersions({ page: 1, limit: 20, type: 'all' }));
       return restored;

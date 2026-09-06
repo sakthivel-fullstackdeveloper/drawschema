@@ -1,3 +1,5 @@
+const { body } = require('express-validator');
+
 exports.register = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').trim().isEmail().withMessage('Valid email format is required').normalizeEmail(),

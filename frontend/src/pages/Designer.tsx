@@ -91,12 +91,13 @@ export const Designer: React.FC = () => {
     }
   }, [toast, hideToast]);
 
-  // 30-minute auto-save timer loop
+  // 30-minute auto-save timer loop (Only triggers when changes occurred!)
   useEffect(() => {
     if (!project) return;
     const interval = setInterval(() => {
       const state = useSchemaStore.getState();
       if (state.isPreviewMode) return;
+      if (state.changesCount === 0) return; // Skip if no edits/changes made since last checkpoint!
 
       const timestamp = new Date().toLocaleTimeString();
       showToast('Creating background auto-save checkpoint...', 'info');
