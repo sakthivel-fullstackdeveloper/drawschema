@@ -16,7 +16,7 @@ router.put('/schema/:projectId/positions', schemaController.updateTablePositions
 // Tables
 router.post('/tables', schemaValidator.createTable, validate, schemaController.createTable);
 router.put('/tables/:id', schemaValidator.updateTable, validate, schemaController.updateTable);
-router.delete('/tables/:id', schemaController.deleteTable, schemaController.deleteTable);
+router.delete('/tables/:id', schemaController.deleteTable);
 
 // Columns
 router.post('/columns', schemaValidator.createColumn, validate, schemaController.createColumn);
