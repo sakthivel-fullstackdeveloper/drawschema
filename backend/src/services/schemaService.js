@@ -209,28 +209,6 @@ class SchemaService {
       throw error;
     }
 
-    // Prevent Circular Relationships
-    const relationships = await relationshipRepository.findAllByProjectId(projectId);
-    
-    // Build directed graph of dependencies:
-    // A relationship fromTable -> toTable implies fromTable depends on toTable.
-    // If adding fromTable -> toTable creates a path from toTable back to fromTable, it's a cycle.
-    const graph = {};
-    // Add existing relationships
-    relationships.forEach(rel => {
-      if (!graph[rel.from_table_id]) {
-        graph[rel.from_table_id] = [];
-      }
-      graph[rel.from_table_id].push(rel.to_table_id);
-    });
-
-    // Check if path exists from toTableId to fromTableId
-    if (this.hasPath(graph, toTableId, fromTableId)) {
-      const error = new Error('Circular dependency detected. This relationship would create a loop between tables.');
-      error.statusCode = 400;
-      throw error;
-    }
-
     return await relationshipRepository.create(relData);
   }
 

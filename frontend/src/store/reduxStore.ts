@@ -348,19 +348,7 @@ export const addRelationship = createAsyncThunk(
   ) => {
     const state = thunkAPI.getState() as RootState;
     const project = state.schema.currentProject;
-    const relationships = state.schema.relationships;
     if (!project) throw new Error('No active project');
-
-    // Circular check
-    const graph: Record<number, number[]> = {};
-    relationships.forEach((rel) => {
-      if (!graph[rel.fromTableId]) graph[rel.fromTableId] = [];
-      graph[rel.fromTableId].push(rel.toTableId);
-    });
-
-    if (hasPath(graph, toTableId, fromTableId)) {
-      throw new Error('Circular dependency detected. This relationship would create a loop.');
-    }
 
     const backup = { tables: state.schema.tables, relationships: state.schema.relationships };
     thunkAPI.dispatch(schemaSlice.actions.pushHistory());
@@ -707,17 +695,21 @@ export const importJsonSchema = createAsyncThunk(
           const toColumnId = columnIdMap[`${toTableNameStr}.${toColNameStr}`];
 
           if (fromTableId && toTableId && fromColumnId && toColumnId) {
-            const relRes: any = await api.post('/relationships', {
-              projectId: currentProject.id,
-              fromTableId, fromColumnId, toTableId, toColumnId,
-              relationType: rel.relationType || 'OneToMany',
-              onDelete: rel.onDelete || 'CASCADE',
-              onUpdate: rel.onUpdate || 'CASCADE'
-            });
+            try {
+              const relRes: any = await api.post('/relationships', {
+                projectId: currentProject.id,
+                fromTableId, fromColumnId, toTableId, toColumnId,
+                relationType: rel.relationType || 'OneToMany',
+                onDelete: rel.onDelete || 'CASCADE',
+                onUpdate: rel.onUpdate || 'CASCADE'
+              });
 
-            if (relRes.success) {
-              thunkAPI.dispatch(schemaSlice.actions.addRelationshipLocal(mapRelationship(relRes.data.relationship)));
-              await thunkAPI.dispatch(updateColumn({ columnId: fromColumnId, data: { foreignKey: true } }));
+              if (relRes.success) {
+                thunkAPI.dispatch(schemaSlice.actions.addRelationshipLocal(mapRelationship(relRes.data.relationship)));
+                await thunkAPI.dispatch(updateColumn({ columnId: fromColumnId, data: { foreignKey: true } }));
+              }
+            } catch (relErr) {
+              console.warn(`Failed to create relationship ${relCount} (${fromTableNameStr} -> ${toTableNameStr}):`, relErr);
             }
           }
         }
