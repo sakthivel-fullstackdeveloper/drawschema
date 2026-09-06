@@ -79,20 +79,60 @@ export const DesignerCanvas: React.FC = () => {
   }, [displayRelationships, selectedTableIds]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const { fitView } = useReactFlow();
+
+  const isFiltered = (selectedTableIds && selectedTableIds.length > 0);
 
   // Map Tables to React Flow Nodes
   const nodes = useMemo<Node[]>(() => {
-    return visibleTables.map((t) => ({
-      id: String(t.id),
-      type: 'tableNode',
-      position: { x: t.x, y: t.y },
-      width: t.width,
-      height: t.height,
-      style: { width: t.width, height: t.height },
-      data: { table: t },
-      selected: selectedElement?.type === 'table' && selectedElement.id === t.id
-    }));
-  }, [visibleTables, selectedElement]);
+    if (!isFiltered) {
+      return visibleTables.map((t) => ({
+        id: String(t.id),
+        type: 'tableNode',
+        position: { x: t.x, y: t.y },
+        width: t.width,
+        height: t.height,
+        style: { width: t.width, height: t.height },
+        data: { table: t },
+        selected: selectedElement?.type === 'table' && selectedElement.id === t.id
+      }));
+    }
+
+    // When focused via filters: group tables compactly in a clean grid
+    const cols = Math.ceil(Math.sqrt(visibleTables.length));
+    const gapX = 60;
+    const gapY = 60;
+
+    return visibleTables.map((t, index) => {
+      const colIndex = index % cols;
+      const rowIndex = Math.floor(index / cols);
+
+      const tableWidth = t.width || 220;
+      const tableHeight = t.height || 180;
+
+      const posX = colIndex * (tableWidth + gapX);
+      const posY = rowIndex * (tableHeight + gapY);
+
+      return {
+        id: String(t.id),
+        type: 'tableNode',
+        position: { x: posX, y: posY },
+        width: t.width,
+        height: t.height,
+        style: { width: t.width, height: t.height },
+        data: { table: t },
+        selected: selectedElement?.type === 'table' && selectedElement.id === t.id
+      };
+    });
+  }, [visibleTables, isFiltered, selectedElement]);
+
+  // Auto-center viewport whenever focused tables or filters change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.25, duration: 350 });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [selectedTableIds, searchTerm, fitView]);
 
   // Map Relationships to React Flow Edges
   const edges = useMemo<Edge[]>(() => {
@@ -120,7 +160,7 @@ export const DesignerCanvas: React.FC = () => {
   // Handle Node Position changes during drag
   const onNodesChange = useCallback<OnNodesChange>(
     (changes) => {
-      if (isPreviewMode) return;
+      if (isPreviewMode || isFiltered) return;
       changes.forEach((change) => {
         if (change.type === 'position' && (change as NodePositionChange).position) {
           const tableId = parseInt(change.id, 10);
@@ -131,19 +171,19 @@ export const DesignerCanvas: React.FC = () => {
         }
       });
     },
-    [updateTablePositionLocal, isPreviewMode]
+    [updateTablePositionLocal, isPreviewMode, isFiltered]
   );
 
   // Save Node Position when dragging stops
   const onNodeDragStop = useCallback(
     (_event: any, node: any) => {
-      if (isPreviewMode) return;
+      if (isPreviewMode || isFiltered) return;
       const tableId = parseInt(node.id, 10);
       if (!isNaN(tableId)) {
         saveTablePosition(tableId, node.position.x, node.position.y);
       }
     },
-    [saveTablePosition, isPreviewMode]
+    [saveTablePosition, isPreviewMode, isFiltered]
   );
 
   // Handle drawing relationships (connections)
