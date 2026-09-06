@@ -20,7 +20,7 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     length: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.TEXT,
       allowNull: true,
       defaultValue: null
     },

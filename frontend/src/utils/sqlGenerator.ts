@@ -27,22 +27,28 @@ export const generateMySQL = (tables: Table[], relationships: Relationship[]): s
     // Columns definitions
     table.columns.forEach((col) => {
       const isArray = col.datatype.endsWith('[]');
-      const baseType = isArray ? col.datatype.slice(0, -2) : col.datatype;
+      const rawBaseType = isArray ? col.datatype.slice(0, -2) : col.datatype;
+      const baseType = rawBaseType.toUpperCase();
       
-      let colDef = `  \`${col.name}\` ${baseType}`;
-
-      // Append Length
+      // In MySQL DDL, array types (e.g. INT[], VARCHAR[]) and JSON types use 'JSON' without [] suffix or length specifiers
+      let mysqlType = baseType;
       let lengthVal = col.length;
-      if (!lengthVal && baseType === 'VARCHAR') {
+
+      if (isArray || baseType === 'JSON') {
+        mysqlType = 'JSON';
+        lengthVal = null; // MySQL JSON columns do not take length specifiers or [] suffix
+      } else if (baseType === 'VARCHAR' && !lengthVal) {
         lengthVal = '255';
+      } else if (baseType === 'ENUM' && (!lengthVal || lengthVal.trim() === '')) {
+        lengthVal = "'default'";
+      } else if (['TEXT', 'DATE', 'DATETIME', 'TIMESTAMP', 'BOOLEAN', 'UUID'].includes(baseType)) {
+        lengthVal = null; // These types do not take length specifiers in MySQL
       }
+      
+      let colDef = `  \`${col.name}\` ${mysqlType}`;
       
       if (lengthVal) {
         colDef += `(${lengthVal})`;
-      }
-      
-      if (isArray) {
-        colDef += `[]`;
       }
 
       // Nullable
@@ -58,14 +64,21 @@ export const generateMySQL = (tables: Table[], relationships: Relationship[]): s
       }
 
       // Default Value
-      if (col.defaultValue !== null && col.defaultValue !== undefined) {
-        const isStringOrDate = ['VARCHAR', 'TEXT', 'DATE', 'DATETIME', 'TIMESTAMP', 'ENUM', 'UUID'].includes(baseType);
+      // MySQL DDL Rule: JSON, TEXT, and BLOB columns cannot have DEFAULT clauses in MySQL 5.7 / 8.0
+      const isJsonOrText = ['JSON', 'TEXT', 'LONGTEXT', 'MEDIUMTEXT', 'BLOB'].includes(baseType) || isArray;
+
+      if (!isJsonOrText && col.defaultValue !== null && col.defaultValue !== undefined && col.defaultValue.trim() !== '') {
+        const isStringOrDate = ['VARCHAR', 'DATE', 'DATETIME', 'TIMESTAMP', 'ENUM', 'UUID'].includes(baseType);
         const isUpperDefault = ['CURRENT_TIMESTAMP', 'NULL'].includes(col.defaultValue.toUpperCase());
         
-        if (isStringOrDate && !isUpperDefault) {
-          colDef += ` DEFAULT '${col.defaultValue}'`;
-        } else {
-          colDef += ` DEFAULT ${col.defaultValue}`;
+        if (col.defaultValue.toUpperCase() !== 'NULL') {
+          if (isStringOrDate && !isUpperDefault) {
+            // Prevent double single-quoting if already quoted
+            const cleanDefault = col.defaultValue.replace(/^'|'$/g, '');
+            colDef += ` DEFAULT '${cleanDefault}'`;
+          } else {
+            colDef += ` DEFAULT ${col.defaultValue}`;
+          }
         }
       }
 
@@ -91,13 +104,21 @@ export const generateMySQL = (tables: Table[], relationships: Relationship[]): s
 
     // Foreign Keys
     const tableRels = relationships.filter((r) => r.fromTableId === table.id);
-    tableRels.forEach((rel) => {
+    const addedFkKeys = new Set<string>();
+
+    tableRels.forEach((rel, relIdx) => {
       const parentTable = tableMap.get(rel.toTableId);
       const childCol = table.columns.find((c) => c.id === rel.fromColumnId);
       const parentCol = parentTable?.columns.find((c) => c.id === rel.toColumnId);
 
       if (childCol && parentTable && parentCol) {
-        let fkDef = `  CONSTRAINT \`fk_${table.name}_${childCol.name}\` FOREIGN KEY (\`${childCol.name}\`) REFERENCES \`${parentTable.name}\` (\`${parentCol.name}\`)`;
+        // Prevent duplicate FK definitions on identical column pairs
+        const fkPairKey = `${childCol.name}->${parentTable.name}.${parentCol.name}`;
+        if (addedFkKeys.has(fkPairKey)) return;
+        addedFkKeys.add(fkPairKey);
+
+        const constraintName = `fk_${table.name}_${childCol.name}_${rel.id || relIdx + 1}`;
+        let fkDef = `  CONSTRAINT \`${constraintName}\` FOREIGN KEY (\`${childCol.name}\`) REFERENCES \`${parentTable.name}\` (\`${parentCol.name}\`)`;
         
         if (rel.onDelete && rel.onDelete !== 'NO ACTION') {
           fkDef += ` ON DELETE ${rel.onDelete}`;

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useSchemaStore } from '../../store/schemaStore';
 import { generateMySQL } from '../../utils/sqlGenerator';
 import { parseSQL } from '../../utils/sqlParser';
-import { toPng, toSvg } from 'html-to-image';
+import { generateNativeSVG } from '../../utils/svgGenerator';
+import { toPng, toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import {
   Download, Upload, Sun, Moon,
@@ -26,6 +27,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
     importJsonSchema,
     isPreviewMode,
     previewTables,
+    previewRelationships,
     undo,
     redo,
     clearSchema,
@@ -116,17 +118,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const maxDim = 4096;
+      const maxDim = 6144;
       let pixelRatio = 2;
-      let targetWidth = Math.round(bounds.width * pixelRatio);
-      let targetHeight = Math.round(bounds.height * pixelRatio);
-
-      if (targetWidth > maxDim || targetHeight > maxDim) {
-        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
-        targetWidth = Math.round(targetWidth * scaleFactor);
-        targetHeight = Math.round(targetHeight * scaleFactor);
-        pixelRatio = targetWidth / bounds.width;
+      if (bounds.width * pixelRatio > maxDim || bounds.height * pixelRatio > maxDim) {
+        pixelRatio = Math.max(1, maxDim / Math.max(bounds.width, bounds.height));
       }
+
+      const targetWidth = Math.round(bounds.width * pixelRatio);
+      const targetHeight = Math.round(bounds.height * pixelRatio);
 
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
@@ -158,29 +157,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
   const handleExportSVG = async () => {
     setIsExporting(true);
     setShowExportDropdown(false);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     try {
-      const el = getCanvasElement();
-      const viewportEl = el.querySelector('.react-flow__viewport') as HTMLElement;
-      if (!viewportEl) throw new Error('React Flow viewport element not found.');
-
+      const activeTables = isPreviewMode ? previewTables : tables;
+      const activeRels = isPreviewMode ? previewRelationships : relationships;
       const bounds = getNodesBoundingBox();
 
-      const dataUrl = await toSvg(viewportEl, {
-        backgroundColor: darkMode ? '#020617' : '#ffffff',
-        width: bounds.width,
-        height: bounds.height,
-        style: {
-          transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
-          width: `${bounds.width}px`,
-          height: `${bounds.height}px`,
-        }
-      });
+      const svgContent = generateNativeSVG(activeTables, activeRels, bounds, darkMode);
 
+      const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.download = 'schema-diagram.svg';
-      link.href = dataUrl;
+      link.href = blobUrl;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+
       showToast('SVG Diagram exported successfully!', 'success');
     } catch (err: any) {
       console.error('SVG export failed', err);
@@ -201,25 +195,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const maxDim = 4096;
+      // High-resolution canvas capped at 6144px for optimal <20MB PDF file size & crystal clear text
+      const maxDim = 6144;
       let pixelRatio = 2;
-      let targetWidth = Math.round(bounds.width * pixelRatio);
-      let targetHeight = Math.round(bounds.height * pixelRatio);
-
-      if (targetWidth > maxDim || targetHeight > maxDim) {
-        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
-        targetWidth = Math.round(targetWidth * scaleFactor);
-        targetHeight = Math.round(targetHeight * scaleFactor);
-        pixelRatio = targetWidth / bounds.width;
+      if (bounds.width * pixelRatio > maxDim || bounds.height * pixelRatio > maxDim) {
+        pixelRatio = Math.max(1, maxDim / Math.max(bounds.width, bounds.height));
       }
 
-      const dataUrl = await toPng(viewportEl, {
+      const targetWidth = Math.round(bounds.width * pixelRatio);
+      const targetHeight = Math.round(bounds.height * pixelRatio);
+
+      const dataUrl = await toJpeg(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
         canvasWidth: targetWidth,
         canvasHeight: targetHeight,
         pixelRatio: pixelRatio,
+        quality: 0.93,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -227,28 +220,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
         }
       });
 
-      const format = (bounds.width > 2200 || bounds.height > 1600) ? 'a3' : 'a4';
-      const orientation = bounds.width >= bounds.height ? 'l' : 'p';
-      const pdf = new jsPDF(orientation, 'mm', format);
+      // Calculate custom PDF page dimensions matching diagram aspect ratio & size
+      // 1 px @ standard 96 DPI = 0.264583 mm
+      const diagramWidthMM = bounds.width * 0.264583;
+      const diagramHeightMM = bounds.height * 0.264583;
+      const margin = 10; // 10mm padding around diagram
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10;
+      const totalWidthMM = Math.max(100, diagramWidthMM + margin * 2);
+      const totalHeightMM = Math.max(100, diagramHeightMM + margin * 2);
 
-      const printableWidth = pageWidth - margin * 2;
-      const printableHeight = pageHeight - margin * 2;
+      const orientation = totalWidthMM >= totalHeightMM ? 'l' : 'p';
+      const pdf = new jsPDF({
+        orientation: orientation,
+        unit: 'mm',
+        format: [totalWidthMM, totalHeightMM]
+      });
 
-      const widthScale = printableWidth / bounds.width;
-      const heightScale = printableHeight / bounds.height;
-      const scale = Math.min(widthScale, heightScale);
-
-      const renderWidth = bounds.width * scale;
-      const renderHeight = bounds.height * scale;
-
-      const posX = margin + (printableWidth - renderWidth) / 2;
-      const posY = margin + (printableHeight - renderHeight) / 2;
-
-      pdf.addImage(dataUrl, 'PNG', posX, posY, renderWidth, renderHeight, undefined, 'FAST');
+      pdf.addImage(dataUrl, 'JPEG', margin, margin, diagramWidthMM, diagramHeightMM, undefined, 'FAST');
       pdf.save('schema-diagram.pdf');
       showToast('PDF Document exported successfully!', 'success');
     } catch (err: any) {

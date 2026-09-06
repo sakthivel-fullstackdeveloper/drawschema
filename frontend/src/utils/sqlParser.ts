@@ -169,23 +169,15 @@ export const parseSQL = (sqlText: string): ParsedSchema => {
           // Ignore standard indexing keys
         } else {
           // Column Definition
-          const colWords = colStmt.split(/\s+/);
-          const colName = colWords[0].replace(/[`"']/g, '');
+          const colDefMatch = /^\s*[`"']?(\w+)[`"']?\s+([A-Za-z_]+(?:\[\])?)(?:\s*\(([\s\S]*?)\))?/i.exec(colStmt);
+          if (!colDefMatch) return;
 
-          if (!colName) return;
-
-          let fullDatatype = colWords[1] || 'INT';
-          let datatypeName = 'INT';
-          let lengthVal: string | null = null;
+          const colName = colDefMatch[1];
+          const fullDatatype = colDefMatch[2];
+          let lengthVal: string | null = colDefMatch[3] ? colDefMatch[3].trim() : null;
 
           const isArray = /\[\]$/i.test(fullDatatype);
-          const baseDatatype = fullDatatype.replace(/\[\]$/i, '');
-
-          const typeMatch = /^(\w+)(?:\(([^)]+)\))?/i.exec(baseDatatype);
-          if (typeMatch) {
-            datatypeName = typeMatch[1].toUpperCase();
-            lengthVal = typeMatch[2] || null;
-          }
+          const datatypeName = fullDatatype.replace(/\[\]$/i, '').toUpperCase();
 
           const baseSupportedTypes = [
             'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'BOOLEAN', 'DATE', 
@@ -204,6 +196,11 @@ export const parseSQL = (sqlText: string): ParsedSchema => {
             datatype = (isArray ? 'TEXT[]' : 'TEXT') as DataType;
           } else {
             datatype = (isArray ? 'VARCHAR[]' : 'VARCHAR') as DataType;
+          }
+
+          // Fallback default ENUM value if empty
+          if (datatypeName === 'ENUM' && (!lengthVal || lengthVal.trim() === '')) {
+            lengthVal = "'default'";
           }
 
           let nullable = true;
