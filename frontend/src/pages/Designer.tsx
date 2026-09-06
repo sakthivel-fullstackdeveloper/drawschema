@@ -298,16 +298,20 @@ export const Designer: React.FC = () => {
           <div className="flex flex-col items-center gap-5 max-w-sm text-center">
             <div className="relative flex items-center justify-center">
               <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <span className="absolute text-xs font-black text-indigo-400">
-                {Math.round((importProgress.current / importProgress.total) * 100)}%
-              </span>
+              {importProgress.total > 0 && importProgress.stage !== 'importing' && (
+                <span className="absolute text-xs font-black text-indigo-400">
+                  {Math.round((importProgress.current / importProgress.total) * 100)}%
+                </span>
+              )}
             </div>
             <div className="space-y-1.5">
               <h3 className="text-sm font-bold uppercase tracking-wider text-indigo-400">
                 {importProgress.stage === 'deleting' ? 'Clearing workspace...' : 
-                 importProgress.stage === 'tables' ? 'Importing Tables' : 'Connecting relationships...'}
+                 importProgress.stage === 'tables' ? 'Importing Tables' : 
+                 importProgress.stage === 'relationships' ? 'Connecting relationships...' : 'Importing Database Schema...'}
               </h3>
               <p className="text-xs text-slate-400 font-medium">
+                {importProgress.stage === 'importing' && 'Processing tables, columns & relationships on server...'}
                 {importProgress.stage === 'tables' && `Creating table ${importProgress.current} of ${importProgress.total}...`}
                 {importProgress.stage === 'relationships' && `Creating relationship ${importProgress.current} of ${importProgress.total}...`}
                 {importProgress.stage === 'deleting' && `Removing old element ${importProgress.current} of ${importProgress.total}...`}

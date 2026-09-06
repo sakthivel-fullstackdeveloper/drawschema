@@ -7,8 +7,9 @@ const auth = require('../middleware/authMiddleware');
 
 router.use(auth); // protect all schema routes
 
-// Schema fetch (returns tables, columns, relationships grouped together)
+// Schema fetch & bulk import
 router.get('/schema/:projectId', schemaController.getSchema);
+router.post('/schema/:projectId/import', schemaController.importSchema);
 
 // Tables
 router.post('/tables', schemaValidator.createTable, validate, schemaController.createTable);

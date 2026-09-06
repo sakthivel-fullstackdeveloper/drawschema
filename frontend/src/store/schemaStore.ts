@@ -33,7 +33,7 @@ export interface SchemaState {
     active: boolean;
     current: number;
     total: number;
-    stage: 'deleting' | 'tables' | 'relationships';
+    stage: 'deleting' | 'tables' | 'relationships' | 'importing';
   } | null;
   selectedTableIds: number[];
 

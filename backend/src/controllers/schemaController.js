@@ -161,6 +161,24 @@ class SchemaController {
       next(error);
     }
   }
+
+  // Bulk Schema Import
+  async importSchema(req, res, next) {
+    try {
+      const projectId = parseInt(req.params.projectId, 10);
+      const userId = req.user.id;
+      const { data, mode } = req.body;
+      const schema = await schemaService.importSchema(userId, projectId, data, mode);
+
+      res.status(200).json({
+        success: true,
+        message: 'Schema imported successfully',
+        data: schema
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new SchemaController();

@@ -33,7 +33,7 @@ export interface SchemaState {
     active: boolean;
     current: number;
     total: number;
-    stage: 'deleting' | 'tables' | 'relationships';
+    stage: 'deleting' | 'tables' | 'relationships' | 'importing';
   } | null;
   selectedTableIds: number[];
 }
@@ -563,7 +563,7 @@ export const importJsonSchema = createAsyncThunk(
   'schema/importJsonSchema',
   async ({ jsonStr, mode = 'replace' }: { jsonStr: string; mode?: 'replace' | 'extend' }, thunkAPI) => {
     const state = thunkAPI.getState() as RootState;
-    const { currentProject, tables } = state.schema;
+    const { currentProject } = state.schema;
     if (!currentProject) return;
 
     const data = JSON.parse(jsonStr);
@@ -574,145 +574,22 @@ export const importJsonSchema = createAsyncThunk(
     const backup = { tables: state.schema.tables, relationships: state.schema.relationships };
     thunkAPI.dispatch(schemaSlice.actions.pushHistory());
 
+    thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
+      active: true, stage: 'importing', current: 0, total: 100
+    }));
+
     try {
-      const tableIdMap: Record<string | number, number> = {};
-      const columnIdMap: Record<string | number, number> = {};
+      const response: any = await api.post(`/schema/${currentProject.id}/import`, {
+        data,
+        mode
+      });
 
-      if (mode === 'replace') {
-        // ── REPLACE MODE: delete everything first ──────────────────────
-        const totalDelete = state.schema.relationships.length + tables.length;
-        let deleteCount = 0;
-
-        for (const rel of state.schema.relationships) {
-          deleteCount++;
-          thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-            active: true, stage: 'deleting', current: deleteCount, total: totalDelete
-          }));
-          try { await api.delete(`/relationships/${rel.id}`); } catch (err) { /* ignore */ }
-        }
-        for (const t of tables) {
-          deleteCount++;
-          thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-            active: true, stage: 'deleting', current: deleteCount, total: totalDelete
-          }));
-          try { await api.delete(`/tables/${t.id}`); } catch (err) { /* ignore */ }
-        }
-        thunkAPI.dispatch(schemaSlice.actions.clearSchemaLocal());
-
-      } else {
-        // ── EXTEND MODE: seed tableIdMap with existing tables so FK links work ──
-        for (const t of tables) {
-          tableIdMap[t.name.toLowerCase()] = t.id;
-          for (const col of t.columns) {
-            columnIdMap[`${t.name.toLowerCase()}.${col.name.toLowerCase()}`] = col.id;
-          }
-        }
-
-        // Compute offset so new tables don't overlap existing ones
-        const existingMaxY = tables.reduce((max, t) => Math.max(max, t.y + 240), 100);
-        const yOffset = existingMaxY + 80;
-
-        // Assign offset to incoming tables
-        data.tables = data.tables.map((t: any) => ({
-          ...t,
-          y: (t.y || 100) + yOffset
+      if (response.success && response.data) {
+        thunkAPI.dispatch(schemaSlice.actions.setSchemaLocal(response.data));
+        thunkAPI.dispatch(schemaSlice.actions.showToast({
+          message: `Imported successfully! (${response.data.tables.length} tables, ${response.data.relationships.length} relationships)`,
+          type: 'success'
         }));
-
-        // Skip tables whose name already exists
-        const existingNames = new Set(tables.map((t) => t.name.toLowerCase()));
-        data.tables = data.tables.filter((t: any) => !existingNames.has(t.name.toLowerCase()));
-      }
-
-      // ── CREATE TABLES (both modes) ───────────────────────────────────
-      let tableCount = 0;
-      for (const t of data.tables) {
-        tableCount++;
-        thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-          active: true, stage: 'tables', current: tableCount, total: data.tables.length
-        }));
-
-        const tableRes: any = await api.post('/tables', {
-          projectId: currentProject.id,
-          name: t.name,
-          x: t.x || 100,
-          y: t.y || 100,
-          width: t.width || 220,
-          height: t.height || 180,
-          color: t.color || '#3b82f6'
-        });
-
-        if (tableRes.success) {
-          const newTable = { ...tableRes.data.table, columns: [] };
-          tableIdMap[String(t.id).toLowerCase()] = newTable.id;
-          tableIdMap[t.name.toLowerCase()] = newTable.id;
-          thunkAPI.dispatch(schemaSlice.actions.addTableLocal(newTable));
-
-          const createdCols: Column[] = [];
-          if (t.columns && Array.isArray(t.columns)) {
-            for (const col of t.columns) {
-              const colRes: any = await api.post('/columns', {
-                tableId: newTable.id,
-                name: col.name,
-                datatype: col.datatype || 'INT',
-                length: col.length || null,
-                nullable: col.nullable !== false,
-                primaryKey: col.primaryKey === true,
-                foreignKey: false,
-                uniqueKey: col.uniqueKey === true,
-                autoIncrement: col.autoIncrement === true,
-                defaultValue: col.defaultValue || null,
-                comment: col.comment || null
-              });
-
-              if (colRes.success) {
-                const newCol = colRes.data.column;
-                createdCols.push(newCol);
-                columnIdMap[`${t.name.toLowerCase()}.${col.name.toLowerCase()}`] = newCol.id;
-              }
-            }
-          }
-          thunkAPI.dispatch(schemaSlice.actions.updateTableColumnsLocal({ tableId: newTable.id, columns: createdCols }));
-        }
-      }
-
-      // ── CREATE RELATIONSHIPS (both modes) ────────────────────────────
-      if (data.relationships && Array.isArray(data.relationships)) {
-        let relCount = 0;
-        for (const rel of data.relationships) {
-          relCount++;
-          thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-            active: true, stage: 'relationships', current: relCount, total: data.relationships.length
-          }));
-
-          const fromTableNameStr = String(rel.fromTableName || '').toLowerCase();
-          const toTableNameStr = String(rel.toTableName || '').toLowerCase();
-          const fromColNameStr = String(rel.fromColumnName || '').toLowerCase();
-          const toColNameStr = String(rel.toColumnName || '').toLowerCase();
-
-          const fromTableId = tableIdMap[fromTableNameStr] || tableIdMap[String(rel.fromTableId).toLowerCase()];
-          const toTableId = tableIdMap[toTableNameStr] || tableIdMap[String(rel.toTableId).toLowerCase()];
-          const fromColumnId = columnIdMap[`${fromTableNameStr}.${fromColNameStr}`];
-          const toColumnId = columnIdMap[`${toTableNameStr}.${toColNameStr}`];
-
-          if (fromTableId && toTableId && fromColumnId && toColumnId) {
-            try {
-              const relRes: any = await api.post('/relationships', {
-                projectId: currentProject.id,
-                fromTableId, fromColumnId, toTableId, toColumnId,
-                relationType: rel.relationType || 'OneToMany',
-                onDelete: rel.onDelete || 'CASCADE',
-                onUpdate: rel.onUpdate || 'CASCADE'
-              });
-
-              if (relRes.success) {
-                thunkAPI.dispatch(schemaSlice.actions.addRelationshipLocal(mapRelationship(relRes.data.relationship)));
-                await thunkAPI.dispatch(updateColumn({ columnId: fromColumnId, data: { foreignKey: true } }));
-              }
-            } catch (relErr) {
-              console.warn(`Failed to create relationship ${relCount} (${fromTableNameStr} -> ${toTableNameStr}):`, relErr);
-            }
-          }
-        }
       }
 
       thunkAPI.dispatch(schemaSlice.actions.clearImportProgress());
@@ -1036,6 +913,10 @@ export const schemaSlice = createSlice({
     },
     clearImportProgress: (state) => {
       state.importProgress = null;
+    },
+    setSchemaLocal: (state, action: PayloadAction<{ tables: Table[]; relationships: Relationship[] }>) => {
+      state.tables = action.payload.tables;
+      state.relationships = action.payload.relationships;
     },
     toggleSelectTableLocal: (state, action: PayloadAction<number>) => {
       const id = action.payload;
