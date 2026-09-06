@@ -20,6 +20,30 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING(255),
       allowNull: false
     },
+    is_google: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    is_verified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    mfa_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    },
+
+
+    otp_code: {
+      type: DataTypes.STRING(6),
+      allowNull: true,
+      defaultValue: null
+    },
+    otp_expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW

@@ -13,3 +13,13 @@ exports.login = [
   body('email').trim().isEmail().withMessage('Valid email format is required').normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required')
 ];
+
+exports.verifyOtp = [
+  body('tempToken').notEmpty().withMessage('Temporary verification token is required'),
+  body('otpCode').trim().isLength({ min: 6, max: 6 }).withMessage('6-digit OTP code is required')
+];
+
+exports.resendOtp = [
+  body('tempToken').notEmpty().withMessage('Temporary verification token is required')
+];
+

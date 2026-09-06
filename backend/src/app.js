@@ -8,6 +8,8 @@ const schemaRoutes = require('./routes/schemaRoutes');
 const versionRoutes = require('./routes/versionRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 
+const path = require('path');
+
 const app = express();
 
 // Standard middlewares
@@ -20,6 +22,7 @@ app.use(cors({
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.use('/api/auth', authRoutes);
