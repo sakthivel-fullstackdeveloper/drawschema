@@ -116,17 +116,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const pixelRatio = 2;
-      const canvasWidth = bounds.width * pixelRatio;
-      const canvasHeight = bounds.height * pixelRatio;
+      const maxDim = 4096;
+      let pixelRatio = 2;
+      let targetWidth = Math.round(bounds.width * pixelRatio);
+      let targetHeight = Math.round(bounds.height * pixelRatio);
+
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
+        targetWidth = Math.round(targetWidth * scaleFactor);
+        targetHeight = Math.round(targetHeight * scaleFactor);
+        pixelRatio = targetWidth / bounds.width;
+      }
 
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
-        canvasWidth,
-        canvasHeight,
-        pixelRatio,
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+        pixelRatio: pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -193,17 +201,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const pixelRatio = 2;
-      const canvasWidth = bounds.width * pixelRatio;
-      const canvasHeight = bounds.height * pixelRatio;
+      const maxDim = 4096;
+      let pixelRatio = 2;
+      let targetWidth = Math.round(bounds.width * pixelRatio);
+      let targetHeight = Math.round(bounds.height * pixelRatio);
+
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
+        targetWidth = Math.round(targetWidth * scaleFactor);
+        targetHeight = Math.round(targetHeight * scaleFactor);
+        pixelRatio = targetWidth / bounds.width;
+      }
 
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
-        canvasWidth,
-        canvasHeight,
-        pixelRatio,
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+        pixelRatio: pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -232,7 +248,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
       const posX = margin + (printableWidth - renderWidth) / 2;
       const posY = margin + (printableHeight - renderHeight) / 2;
 
-      pdf.addImage(dataUrl, 'JPEG', posX, posY, renderWidth, renderHeight, undefined, 'SLOW');
+      pdf.addImage(dataUrl, 'PNG', posX, posY, renderWidth, renderHeight, undefined, 'FAST');
       pdf.save('schema-diagram.pdf');
       showToast('PDF Document exported successfully!', 'success');
     } catch (err: any) {
