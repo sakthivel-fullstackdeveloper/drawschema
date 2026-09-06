@@ -108,6 +108,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
   const handleExportPNG = async () => {
     setIsExporting(true);
     setShowExportDropdown(false);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     try {
       const el = getCanvasElement();
       const viewportEl = el.querySelector('.react-flow__viewport') as HTMLElement;
@@ -115,10 +116,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
+      const maxDim = 4000;
+      let targetWidth = bounds.width;
+      let targetHeight = bounds.height;
+      let pixelRatio = 1;
+
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
+        targetWidth = Math.round(targetWidth * scaleFactor);
+        targetHeight = Math.round(targetHeight * scaleFactor);
+        pixelRatio = scaleFactor;
+      }
+
       const dataUrl = await toPng(viewportEl, {
-        backgroundColor: darkMode ? '#020617' : '#f8fafc',
+        backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+        pixelRatio: pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -130,9 +146,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
       link.download = 'schema-diagram.png';
       link.href = dataUrl;
       link.click();
-    } catch (err) {
+      showToast('PNG Diagram exported successfully!', 'success');
+    } catch (err: any) {
       console.error('PNG export failed', err);
-      alert('Failed to export PNG.');
+      showToast(err.message || 'Failed to export PNG.', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -141,6 +158,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
   const handleExportSVG = async () => {
     setIsExporting(true);
     setShowExportDropdown(false);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     try {
       const el = getCanvasElement();
       const viewportEl = el.querySelector('.react-flow__viewport') as HTMLElement;
@@ -149,7 +167,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
       const bounds = getNodesBoundingBox();
 
       const dataUrl = await toSvg(viewportEl, {
-        backgroundColor: darkMode ? '#020617' : '#f8fafc',
+        backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
         style: {
@@ -163,9 +181,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
       link.download = 'schema-diagram.svg';
       link.href = dataUrl;
       link.click();
-    } catch (err) {
+      showToast('SVG Diagram exported successfully!', 'success');
+    } catch (err: any) {
       console.error('SVG export failed', err);
-      alert('Failed to export SVG.');
+      showToast(err.message || 'Failed to export SVG.', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -174,6 +193,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
   const handleExportPDF = async () => {
     setIsExporting(true);
     setShowExportDropdown(false);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     try {
       const el = getCanvasElement();
       const viewportEl = el.querySelector('.react-flow__viewport') as HTMLElement;
@@ -181,10 +201,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
+      const maxDim = 4000;
+      let targetWidth = bounds.width;
+      let targetHeight = bounds.height;
+      let pixelRatio = 1;
+
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
+        targetWidth = Math.round(targetWidth * scaleFactor);
+        targetHeight = Math.round(targetHeight * scaleFactor);
+        pixelRatio = scaleFactor;
+      }
+
       const dataUrl = await toPng(viewportEl, {
-        backgroundColor: darkMode ? '#020617' : '#f8fafc',
+        backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+        pixelRatio: pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -192,12 +227,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
         }
       });
 
-      const pdf = new jsPDF('l', 'px', [bounds.width, bounds.height]);
-      pdf.addImage(dataUrl, 'PNG', 0, 0, bounds.width, bounds.height);
+      const orientation = bounds.width >= bounds.height ? 'l' : 'p';
+      const pdf = new jsPDF(orientation, 'mm', 'a4');
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+
+      const printableWidth = pageWidth - margin * 2;
+      const printableHeight = pageHeight - margin * 2;
+
+      const widthScale = printableWidth / bounds.width;
+      const heightScale = printableHeight / bounds.height;
+      const scale = Math.min(widthScale, heightScale);
+
+      const renderWidth = bounds.width * scale;
+      const renderHeight = bounds.height * scale;
+
+      const posX = margin + (printableWidth - renderWidth) / 2;
+      const posY = margin + (printableHeight - renderHeight) / 2;
+
+      pdf.addImage(dataUrl, 'JPEG', posX, posY, renderWidth, renderHeight, undefined, 'FAST');
       pdf.save('schema-diagram.pdf');
-    } catch (err) {
+      showToast('PDF Document exported successfully!', 'success');
+    } catch (err: any) {
       console.error('PDF export failed', err);
-      alert('Failed to export PDF.');
+      showToast(err.message || 'Failed to export PDF.', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -650,6 +705,23 @@ Schema to generate: [describe your tables and columns here]`;
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen Export Progress Modal Overlay */}
+      {isExporting && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[99999] flex flex-col items-center justify-center text-center p-4 select-none animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                Exporting Document...
+              </h3>
+              <p className="text-xs text-slate-400">
+                Generating high-resolution document layout. Please wait...
+              </p>
+            </div>
           </div>
         </div>
       )}
