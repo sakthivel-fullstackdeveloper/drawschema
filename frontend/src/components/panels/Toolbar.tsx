@@ -116,25 +116,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const maxDim = 4000;
-      let targetWidth = bounds.width;
-      let targetHeight = bounds.height;
-      let pixelRatio = 1;
-
-      if (targetWidth > maxDim || targetHeight > maxDim) {
-        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
-        targetWidth = Math.round(targetWidth * scaleFactor);
-        targetHeight = Math.round(targetHeight * scaleFactor);
-        pixelRatio = scaleFactor;
-      }
+      const pixelRatio = 2;
+      const canvasWidth = bounds.width * pixelRatio;
+      const canvasHeight = bounds.height * pixelRatio;
 
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
-        canvasWidth: targetWidth,
-        canvasHeight: targetHeight,
-        pixelRatio: pixelRatio,
+        canvasWidth,
+        canvasHeight,
+        pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -201,25 +193,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
 
       const bounds = getNodesBoundingBox();
 
-      const maxDim = 4000;
-      let targetWidth = bounds.width;
-      let targetHeight = bounds.height;
-      let pixelRatio = 1;
-
-      if (targetWidth > maxDim || targetHeight > maxDim) {
-        const scaleFactor = maxDim / Math.max(targetWidth, targetHeight);
-        targetWidth = Math.round(targetWidth * scaleFactor);
-        targetHeight = Math.round(targetHeight * scaleFactor);
-        pixelRatio = scaleFactor;
-      }
+      const pixelRatio = 2;
+      const canvasWidth = bounds.width * pixelRatio;
+      const canvasHeight = bounds.height * pixelRatio;
 
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: darkMode ? '#020617' : '#ffffff',
         width: bounds.width,
         height: bounds.height,
-        canvasWidth: targetWidth,
-        canvasHeight: targetHeight,
-        pixelRatio: pixelRatio,
+        canvasWidth,
+        canvasHeight,
+        pixelRatio,
         style: {
           transform: `translate(${-bounds.x}px, ${-bounds.y}px) scale(1)`,
           width: `${bounds.width}px`,
@@ -227,8 +211,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
         }
       });
 
+      const format = (bounds.width > 2200 || bounds.height > 1600) ? 'a3' : 'a4';
       const orientation = bounds.width >= bounds.height ? 'l' : 'p';
-      const pdf = new jsPDF(orientation, 'mm', 'a4');
+      const pdf = new jsPDF(orientation, 'mm', format);
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -247,7 +232,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenVersions, onSaveVersionC
       const posX = margin + (printableWidth - renderWidth) / 2;
       const posY = margin + (printableHeight - renderHeight) / 2;
 
-      pdf.addImage(dataUrl, 'JPEG', posX, posY, renderWidth, renderHeight, undefined, 'FAST');
+      pdf.addImage(dataUrl, 'JPEG', posX, posY, renderWidth, renderHeight, undefined, 'SLOW');
       pdf.save('schema-diagram.pdf');
       showToast('PDF Document exported successfully!', 'success');
     } catch (err: any) {
