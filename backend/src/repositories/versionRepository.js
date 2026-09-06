@@ -104,13 +104,13 @@ class VersionRepository {
     if (data.description !== undefined) updateData.description = data.description;
     if (data.isPinned !== undefined) updateData.is_pinned = data.isPinned;
 
-    if (Object.keys(updateData).length === 0) return false;
+    if (Object.keys(updateData).length === 0) return true;
 
-    const [affectedRows] = await ProjectVersion.update(updateData, {
+    await ProjectVersion.update(updateData, {
       where: { id },
       ...options
     });
-    return affectedRows > 0;
+    return true;
   }
 
   async delete(id, connection = null) {

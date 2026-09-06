@@ -179,6 +179,39 @@ class SchemaController {
       next(error);
     }
   }
+
+  // Bulk Clear Schema
+  async clearSchema(req, res, next) {
+    try {
+      const projectId = parseInt(req.params.projectId, 10);
+      const userId = req.user.id;
+      await schemaService.clearSchema(userId, projectId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Schema cleared successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Bulk Table Positions Update
+  async updateTablePositions(req, res, next) {
+    try {
+      const projectId = parseInt(req.params.projectId, 10);
+      const userId = req.user.id;
+      const { positions } = req.body;
+      await schemaService.updateTablePositions(userId, projectId, positions);
+
+      res.status(200).json({
+        success: true,
+        message: 'Table positions updated successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new SchemaController();

@@ -13,6 +13,13 @@ export const Register: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/;
+    if (!passwordRegex.test(password)) {
+      setError('Password must be at least 6 characters and include uppercase, lowercase, number, and special character.');
+      return;
+    }
+
     setLoading(true);
     try {
       await register(name, email, password);
@@ -81,6 +88,9 @@ export const Register: React.FC = () => {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-2.5 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
             />
+            <p className="text-[10px] text-slate-400 mt-1">
+              Must be at least 6 characters and include uppercase, lowercase, number, and special character.
+            </p>
           </div>
 
           <button

@@ -5,6 +5,7 @@ const tableRepository = require('../repositories/tableRepository');
 const columnRepository = require('../repositories/columnRepository');
 const relationshipRepository = require('../repositories/relationshipRepository');
 const { runTransaction } = require('../config/db');
+const { Table, Column, Relationship } = require('../models');
 
 class VersionService {
   // Compress JSON snapshot
@@ -274,69 +275,89 @@ class VersionService {
         createdBy: userId
       }, connection);
 
-      // 2. Clear current elements under the project
-      const { Table, Relationship } = require('../models');
+      // 2. Clear current elements under the project in 2 fast queries
       const options = connection ? { transaction: connection } : {};
       await Relationship.destroy({ where: { project_id: projectId }, ...options });
       await Table.destroy({ where: { project_id: projectId }, ...options });
 
-      // 3. Reconstruct tables and columns
+      // 3. Bulk Reconstruct tables and columns
       const tableIdMap = {};
       const columnIdMap = {};
 
-      for (const table of snapshot.tables) {
-        const createdTable = await tableRepository.create({
-          projectId,
-          name: table.name,
-          x: table.x,
-          y: table.y,
-          width: table.width,
-          height: table.height,
-          color: table.color
-        }, connection);
+      const tablesToCreate = snapshot.tables.map(table => ({
+        project_id: projectId,
+        name: table.name,
+        x: table.x,
+        y: table.y,
+        width: table.width,
+        height: table.height,
+        color: table.color
+      }));
 
-        tableIdMap[table.id] = createdTable.id;
+      if (tablesToCreate.length > 0) {
+        const createdTables = await Table.bulkCreate(tablesToCreate, options);
+        const columnsToCreate = [];
 
-        for (const col of table.columns) {
-          const createdCol = await columnRepository.create({
-            tableId: createdTable.id,
-            name: col.name,
-            datatype: col.datatype,
-            length: col.length,
-            nullable: col.nullable,
-            primaryKey: col.primaryKey,
-            foreignKey: col.foreignKey,
-            uniqueKey: col.uniqueKey,
-            autoIncrement: col.autoIncrement,
-            defaultValue: col.defaultValue,
-            comment: col.comment
-          }, connection);
+        for (let i = 0; i < createdTables.length; i++) {
+          const newTable = createdTables[i];
+          const origTable = snapshot.tables[i];
 
-          columnIdMap[col.id] = createdCol.id;
+          tableIdMap[origTable.id] = newTable.id;
+
+          if (origTable.columns && Array.isArray(origTable.columns)) {
+            for (const col of origTable.columns) {
+              columnsToCreate.push({
+                table_id: newTable.id,
+                name: col.name,
+                datatype: col.datatype,
+                length: col.length || null,
+                nullable: col.nullable !== false,
+                primary_key: col.primaryKey === true,
+                foreign_key: col.foreignKey === true,
+                unique_key: col.uniqueKey === true,
+                auto_increment: col.autoIncrement === true,
+                default_value: col.defaultValue || null,
+                comment: col.comment || null,
+                origColId: col.id
+              });
+            }
+          }
+        }
+
+        if (columnsToCreate.length > 0) {
+          const createdCols = await Column.bulkCreate(columnsToCreate, options);
+          for (let i = 0; i < createdCols.length; i++) {
+            const colRecord = createdCols[i];
+            const origCol = columnsToCreate[i];
+            columnIdMap[origCol.origColId] = colRecord.id;
+          }
         }
       }
 
-      // 4. Reconstruct relationships with mapped IDs
+      // 4. Bulk Reconstruct relationships with mapped IDs
+      const relsToCreate = [];
       for (const rel of snapshot.relationships) {
         const mappedFromTable = tableIdMap[rel.fromTableId];
         const mappedToTable = tableIdMap[rel.toTableId];
         const mappedFromCol = columnIdMap[rel.fromColumnId];
         const mappedToCol = columnIdMap[rel.toColumnId];
 
-        if (!mappedFromTable || !mappedToTable || !mappedFromCol || !mappedToCol) {
-          throw new Error(`Corrupted references inside relationship mapping (fromTable: ${rel.fromTableId}, toTable: ${rel.toTableId})`);
+        if (mappedFromTable && mappedToTable && mappedFromCol && mappedToCol) {
+          relsToCreate.push({
+            project_id: projectId,
+            from_table_id: mappedFromTable,
+            from_column_id: mappedFromCol,
+            to_table_id: mappedToTable,
+            to_column_id: mappedToCol,
+            relation_type: rel.relationType,
+            on_delete: rel.onDelete || 'CASCADE',
+            on_update: rel.onUpdate || 'CASCADE'
+          });
         }
+      }
 
-        await relationshipRepository.create({
-          projectId,
-          fromTableId: mappedFromTable,
-          fromColumnId: mappedFromCol,
-          toTableId: mappedToTable,
-          toColumnId: mappedToCol,
-          relationType: rel.relationType,
-          onDelete: rel.onDelete,
-          onUpdate: rel.onUpdate
-        }, connection);
+      if (relsToCreate.length > 0) {
+        await Relationship.bulkCreate(relsToCreate, { ...options, ignoreDuplicates: true });
       }
 
       // Return newly built structured model

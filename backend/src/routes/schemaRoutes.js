@@ -7,9 +7,11 @@ const auth = require('../middleware/authMiddleware');
 
 router.use(auth); // protect all schema routes
 
-// Schema fetch & bulk import
+// Schema fetch, bulk import, clear & positions
 router.get('/schema/:projectId', schemaController.getSchema);
 router.post('/schema/:projectId/import', schemaController.importSchema);
+router.delete('/schema/:projectId/clear', schemaController.clearSchema);
+router.put('/schema/:projectId/positions', schemaController.updateTablePositions);
 
 // Tables
 router.post('/tables', schemaValidator.createTable, validate, schemaController.createTable);

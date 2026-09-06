@@ -87,11 +87,11 @@ class ColumnRepository {
 
     if (Object.keys(updateData).length === 0) return true;
 
-    const [affectedRows] = await Column.update(updateData, {
+    await Column.update(updateData, {
       where: { id },
       ...options
     });
-    return affectedRows > 0;
+    return true;
   }
 
   async delete(id, connection = null) {

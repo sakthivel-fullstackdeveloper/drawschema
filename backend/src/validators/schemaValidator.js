@@ -23,11 +23,8 @@ exports.createColumn = [
   body('tableId').isInt().withMessage('Valid tableId is required'),
   body('name').trim().notEmpty().withMessage('Column name is required'),
   body('datatype').trim().notEmpty().withMessage('Datatype is required')
-    .isIn([
-      'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'BOOLEAN', 'DATE', 
-      'DATETIME', 'TIMESTAMP', 'FLOAT', 'DOUBLE', 'DECIMAL', 
-      'JSON', 'UUID', 'ENUM'
-    ]).withMessage('Unsupported datatype'),
+    .isString().withMessage('Datatype must be a string')
+    .isLength({ max: 50 }).withMessage('Datatype cannot exceed 50 characters'),
   body('length').optional({ nullable: true }).isString().withMessage('Length must be a string'),
   body('nullable').optional().isBoolean().withMessage('Nullable must be a boolean'),
   body('primaryKey').optional().isBoolean().withMessage('PrimaryKey must be a boolean'),
@@ -41,11 +38,8 @@ exports.createColumn = [
 exports.updateColumn = [
   body('name').optional().trim().notEmpty().withMessage('Column name cannot be empty'),
   body('datatype').optional().trim().notEmpty().withMessage('Datatype is required')
-    .isIn([
-      'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'BOOLEAN', 'DATE', 
-      'DATETIME', 'TIMESTAMP', 'FLOAT', 'DOUBLE', 'DECIMAL', 
-      'JSON', 'UUID', 'ENUM'
-    ]).withMessage('Unsupported datatype'),
+    .isString().withMessage('Datatype must be a string')
+    .isLength({ max: 50 }).withMessage('Datatype cannot exceed 50 characters'),
   body('length').optional({ nullable: true }).isString().withMessage('Length must be a string'),
   body('nullable').optional().isBoolean().withMessage('Nullable must be a boolean'),
   body('primaryKey').optional().isBoolean().withMessage('PrimaryKey must be a boolean'),

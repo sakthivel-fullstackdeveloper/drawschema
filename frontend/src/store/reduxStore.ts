@@ -220,34 +220,12 @@ export const duplicateTable = createAsyncThunk(
         y: tableToDup.y + 40,
         width: tableToDup.width,
         height: tableToDup.height,
-        color: tableToDup.color
+        color: tableToDup.color,
+        columns: tableToDup.columns
       });
 
       if (res.success) {
-        const newTable = { ...res.data.table, columns: [] };
-        thunkAPI.dispatch(schemaSlice.actions.addTableLocal(newTable));
-
-        const createdCols: Column[] = [];
-        for (const col of tableToDup.columns) {
-          const colRes: any = await api.post('/columns', {
-            tableId: newTable.id,
-            name: col.name,
-            datatype: col.datatype,
-            length: col.length,
-            nullable: col.nullable,
-            primaryKey: col.primaryKey,
-            foreignKey: false,
-            uniqueKey: col.uniqueKey,
-            autoIncrement: col.autoIncrement,
-            defaultValue: col.defaultValue,
-            comment: col.comment
-          });
-          if (colRes.success) {
-            createdCols.push(colRes.data.column);
-          }
-        }
-
-        thunkAPI.dispatch(schemaSlice.actions.updateTableColumnsLocal({ tableId: newTable.id, columns: createdCols }));
+        thunkAPI.dispatch(schemaSlice.actions.addTableLocal(res.data.table));
       }
     } catch (err: any) {
       thunkAPI.dispatch(schemaSlice.actions.rollbackState(backup));
@@ -451,34 +429,12 @@ export const pasteCopied = createAsyncThunk(
         y: table.y + 50,
         width: table.width,
         height: table.height,
-        color: table.color
+        color: table.color,
+        columns: table.columns
       });
 
       if (res.success) {
-        const newTable = { ...res.data.table, columns: [] };
-        thunkAPI.dispatch(schemaSlice.actions.addTableLocal(newTable));
-
-        const createdCols: Column[] = [];
-        for (const col of table.columns) {
-          const colRes: any = await api.post('/columns', {
-            tableId: newTable.id,
-            name: col.name,
-            datatype: col.datatype,
-            length: col.length,
-            nullable: col.nullable,
-            primaryKey: col.primaryKey,
-            foreignKey: false,
-            uniqueKey: col.uniqueKey,
-            autoIncrement: col.autoIncrement,
-            defaultValue: col.defaultValue,
-            comment: col.comment
-          });
-          if (colRes.success) {
-            createdCols.push(colRes.data.column);
-          }
-        }
-
-        thunkAPI.dispatch(schemaSlice.actions.updateTableColumnsLocal({ tableId: newTable.id, columns: createdCols }));
+        thunkAPI.dispatch(schemaSlice.actions.addTableLocal(res.data.table));
       }
     } catch (err: any) {
       thunkAPI.dispatch(schemaSlice.actions.rollbackState(backup));
@@ -508,45 +464,21 @@ export const clearSchema = createAsyncThunk(
   'schema/clearSchema',
   async (_, thunkAPI) => {
     const state = thunkAPI.getState() as RootState;
-    const { tables, relationships } = state.schema;
+    const project = state.schema.currentProject;
+    if (!project) return;
 
     const backup = { tables: state.schema.tables, relationships: state.schema.relationships };
     thunkAPI.dispatch(schemaSlice.actions.pushHistory());
 
-    try {
-      const totalDelete = relationships.length + tables.length;
-      let deleteCount = 0;
+    thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
+      active: true,
+      stage: 'deleting',
+      current: 0,
+      total: 100
+    }));
 
-      // Clear current structure relationships first
-      for (const rel of relationships) {
-        deleteCount++;
-        thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-          active: true,
-          stage: 'deleting',
-          current: deleteCount,
-          total: totalDelete
-        }));
-        try {
-          await api.delete(`/relationships/${rel.id}`);
-        } catch (err) {
-          console.warn(`Ignore delete rel error:`, err);
-        }
-      }
-      // Clear tables
-      for (const t of tables) {
-        deleteCount++;
-        thunkAPI.dispatch(schemaSlice.actions.setImportProgress({
-          active: true,
-          stage: 'deleting',
-          current: deleteCount,
-          total: totalDelete
-        }));
-        try {
-          await api.delete(`/tables/${t.id}`);
-        } catch (err) {
-          console.warn(`Ignore delete table error:`, err);
-        }
-      }
+    try {
+      await api.delete(`/schema/${project.id}/clear`);
 
       thunkAPI.dispatch(schemaSlice.actions.clearSchemaLocal());
       thunkAPI.dispatch(incrementChangeCount());
@@ -942,6 +874,8 @@ export const schemaSlice = createSlice({
       const GAP_X = 380;
       const GAP_Y_BUFFER = 100;
 
+      const newPositions: { id: number; x: number; y: number }[] = [];
+
       state.tables = state.tables.map((t, idx) => {
         const colIdx = idx % COLS_COUNT;
         const x = 100 + colIdx * GAP_X;
@@ -949,11 +883,15 @@ export const schemaSlice = createSlice({
         
         const cardHeight = 100 + t.columns.length * 32;
         colHeights[colIdx] = y + cardHeight + GAP_Y_BUFFER;
-        
-        api.put(`/tables/${t.id}`, { x, y }).catch(err => console.error(err));
+
+        newPositions.push({ id: t.id, x, y });
 
         return { ...t, x, y };
       });
+
+      if (state.currentProject && newPositions.length > 0) {
+        api.put(`/schema/${state.currentProject.id}/positions`, { positions: newPositions }).catch(err => console.error(err));
+      }
     }
   },
   extraReducers: (builder) => {

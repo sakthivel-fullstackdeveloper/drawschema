@@ -60,11 +60,11 @@ class TableRepository {
 
     if (Object.keys(updateData).length === 0) return true;
 
-    const [affectedRows] = await Table.update(updateData, {
+    await Table.update(updateData, {
       where: { id },
       ...options
     });
-    return affectedRows > 0;
+    return true;
   }
 
   async delete(id, connection = null) {

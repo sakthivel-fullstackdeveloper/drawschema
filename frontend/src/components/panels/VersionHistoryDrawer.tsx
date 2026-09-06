@@ -53,7 +53,7 @@ export const VersionHistoryDrawer: React.FC<VersionHistoryDrawerProps> = ({ onCl
       setLoading(false);
     };
     fetch();
-  }, [page, filterType, loadVersions]);
+  }, [page, filterType]);
 
   const handleFilterChange = (type: 'all' | 'manual' | 'auto' | 'pinned') => {
     setFilterType(type);

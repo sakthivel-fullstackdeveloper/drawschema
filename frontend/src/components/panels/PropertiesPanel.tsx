@@ -86,10 +86,26 @@ export const PropertiesPanel: React.FC = () => {
   const currentDefault = selectedColumn?.defaultValue || '';
   const currentComment = selectedColumn?.comment || '';
 
+  // Local state for Table
   const [nameInput, setNameInput] = useState(currentName);
+  const [colorInput, setColorInput] = useState(selectedTable?.color || '#3b82f6');
+  const [widthInput, setWidthInput] = useState<number | string>(selectedTable?.width || 220);
+  const [heightInput, setHeightInput] = useState<number | string>(selectedTable?.height || 180);
+
+  // Local state for Column
   const [lengthInput, setLengthInput] = useState(currentLength);
   const [defaultInput, setDefaultInput] = useState(currentDefault);
   const [commentInput, setCommentInput] = useState(currentComment);
+  const [datatypeInput, setDatatypeInput] = useState<DataType>(selectedColumn?.datatype || 'INT');
+  const [primaryKeyInput, setPrimaryKeyInput] = useState(selectedColumn?.primaryKey || false);
+  const [nullableInput, setNullableInput] = useState(selectedColumn?.nullable || false);
+  const [uniqueKeyInput, setUniqueKeyInput] = useState(selectedColumn?.uniqueKey || false);
+  const [autoIncrementInput, setAutoIncrementInput] = useState(selectedColumn?.autoIncrement || false);
+
+  // Local state for Relationship
+  const [relationTypeInput, setRelationTypeInput] = useState<RelationType>(selectedRel?.relationType || 'OneToMany');
+  const [onDeleteInput, setOnDeleteInput] = useState<ReferentialRule>(selectedRel?.onDelete || 'CASCADE');
+  const [onUpdateInput, setOnUpdateInput] = useState<ReferentialRule>(selectedRel?.onUpdate || 'CASCADE');
 
   // Sync state when selected element changes
   useEffect(() => {
@@ -97,7 +113,33 @@ export const PropertiesPanel: React.FC = () => {
     setLengthInput(selectedColumn?.length || '');
     setDefaultInput(selectedColumn?.defaultValue || '');
     setCommentInput(selectedColumn?.comment || '');
-  }, [selectedElement?.id, selectedElement?.type, currentName, selectedColumn]);
+    if (selectedTable) {
+      setWidthInput(selectedTable.width);
+      setHeightInput(selectedTable.height);
+      setColorInput(selectedTable.color || '#3b82f6');
+    }
+    if (selectedColumn) {
+      setDatatypeInput(selectedColumn.datatype);
+      setPrimaryKeyInput(selectedColumn.primaryKey);
+      setNullableInput(selectedColumn.nullable);
+      setUniqueKeyInput(selectedColumn.uniqueKey);
+      setAutoIncrementInput(selectedColumn.autoIncrement);
+    }
+    if (selectedRel) {
+      setRelationTypeInput(selectedRel.relationType);
+      setOnDeleteInput(selectedRel.onDelete);
+      setOnUpdateInput(selectedRel.onUpdate);
+    }
+  }, [
+    selectedElement?.id,
+    selectedElement?.type,
+    currentName,
+    selectedColumn,
+    selectedTable?.width,
+    selectedTable?.height,
+    selectedTable?.color,
+    selectedRel
+  ]);
 
   const handleSaveTable = async () => {
     if (!selectedTable) return;
@@ -108,7 +150,12 @@ export const PropertiesPanel: React.FC = () => {
       return;
     }
     try {
-      await updateTable(selectedTable.id, { name });
+      await updateTable(selectedTable.id, {
+        name,
+        color: colorInput,
+        width: Number(widthInput) || 220,
+        height: Number(heightInput) || 180
+      });
       showToast('Table properties saved!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to save table.', 'error');
@@ -133,7 +180,7 @@ export const PropertiesPanel: React.FC = () => {
 
     const lengthVal = lengthInput.trim();
     if (lengthVal) {
-      if (selectedColumn.datatype === 'ENUM') {
+      if (datatypeInput === 'ENUM') {
         // 2. Validate ENUM values formatting (quoted strings separated by commas)
         const enumRegex = /^('[^']*'\s*,\s*)*'[^']*'$|^("[^"]*"\s*,\s*)*"[^"]*"$/;
         if (!enumRegex.test(lengthVal)) {
@@ -153,13 +200,32 @@ export const PropertiesPanel: React.FC = () => {
     try {
       await updateColumn(selectedColumn.id, {
         name,
+        datatype: datatypeInput,
         length: lengthVal || null,
+        primaryKey: primaryKeyInput,
+        nullable: nullableInput,
+        uniqueKey: uniqueKeyInput,
+        autoIncrement: autoIncrementInput,
         defaultValue: defaultInput.trim() || null,
         comment: commentInput.trim() || null
       });
       showToast('Column properties saved!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to save column.', 'error');
+    }
+  };
+
+  const handleSaveRelationship = async () => {
+    if (!selectedRel) return;
+    try {
+      await updateRelationship(selectedRel.id, {
+        relationType: relationTypeInput,
+        onDelete: onDeleteInput,
+        onUpdate: onUpdateInput
+      });
+      showToast('Relationship properties saved!', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save relationship.', 'error');
     }
   };
 
@@ -232,9 +298,9 @@ export const PropertiesPanel: React.FC = () => {
               {colors.map((c) => (
                 <button
                   key={c}
-                  onClick={() => updateTable(selectedTable.id, { color: c })}
+                  onClick={() => setColorInput(c)}
                   className={`h-7 rounded border transition-all ${
-                    selectedTable.color === c
+                    colorInput === c
                       ? 'border-black dark:border-white scale-105'
                       : 'border-transparent hover:scale-105'
                   }`}
@@ -251,10 +317,8 @@ export const PropertiesPanel: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={selectedTable.width}
-                onChange={(e) =>
-                  updateTable(selectedTable.id, { width: parseInt(e.target.value, 10) || 220 })
-                }
+                value={widthInput}
+                onChange={(e) => setWidthInput(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none"
               />
             </div>
@@ -264,10 +328,8 @@ export const PropertiesPanel: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={selectedTable.height}
-                onChange={(e) =>
-                  updateTable(selectedTable.id, { height: parseInt(e.target.value, 10) || 180 })
-                }
+                value={heightInput}
+                onChange={(e) => setHeightInput(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none"
               />
             </div>
@@ -312,10 +374,8 @@ export const PropertiesPanel: React.FC = () => {
                 Data Type
               </label>
               <select
-                value={selectedColumn.datatype}
-                onChange={(e) =>
-                  updateColumn(selectedColumn.id, { datatype: e.target.value as DataType })
-                }
+                value={datatypeInput}
+                onChange={(e) => setDatatypeInput(e.target.value as DataType)}
                 className="w-full px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none text-slate-700 dark:text-slate-300"
               >
                 {[
@@ -343,16 +403,16 @@ export const PropertiesPanel: React.FC = () => {
 
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-                {selectedColumn.datatype === 'ENUM' ? 'Enum Values' : 'Length'}
+                {datatypeInput === 'ENUM' ? 'Enum Values' : 'Length'}
               </label>
               <input
                 type="text"
-                placeholder={selectedColumn.datatype === 'ENUM' ? "'active','inactive'" : "255"}
+                placeholder={datatypeInput === 'ENUM' ? "'active','inactive'" : "255"}
                 value={lengthInput}
                 onChange={(e) => setLengthInput(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none"
               />
-              {selectedColumn.datatype === 'ENUM' && (
+              {datatypeInput === 'ENUM' && (
                 <span className="text-[9px] text-slate-400 dark:text-slate-500 block mt-0.5">
                   Comma-separated values e.g. 'active','inactive'
                 </span>
@@ -370,8 +430,8 @@ export const PropertiesPanel: React.FC = () => {
               <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-md cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <input
                   type="checkbox"
-                  checked={selectedColumn.primaryKey}
-                  onChange={(e) => updateColumn(selectedColumn.id, { primaryKey: e.target.checked })}
+                  checked={primaryKeyInput}
+                  onChange={(e) => setPrimaryKeyInput(e.target.checked)}
                   className="rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-xs text-slate-700 dark:text-slate-300">Primary Key</span>
@@ -380,8 +440,8 @@ export const PropertiesPanel: React.FC = () => {
               <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-md cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <input
                   type="checkbox"
-                  checked={selectedColumn.nullable}
-                  onChange={(e) => updateColumn(selectedColumn.id, { nullable: e.target.checked })}
+                  checked={nullableInput}
+                  onChange={(e) => setNullableInput(e.target.checked)}
                   className="rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-xs text-slate-700 dark:text-slate-300">Nullable</span>
@@ -390,8 +450,8 @@ export const PropertiesPanel: React.FC = () => {
               <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-md cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <input
                   type="checkbox"
-                  checked={selectedColumn.uniqueKey}
-                  onChange={(e) => updateColumn(selectedColumn.id, { uniqueKey: e.target.checked })}
+                  checked={uniqueKeyInput}
+                  onChange={(e) => setUniqueKeyInput(e.target.checked)}
                   className="rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-xs text-slate-700 dark:text-slate-300">Unique</span>
@@ -400,10 +460,8 @@ export const PropertiesPanel: React.FC = () => {
               <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-md cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <input
                   type="checkbox"
-                  checked={selectedColumn.autoIncrement}
-                  onChange={(e) =>
-                    updateColumn(selectedColumn.id, { autoIncrement: e.target.checked })
-                  }
+                  checked={autoIncrementInput}
+                  onChange={(e) => setAutoIncrementInput(e.target.checked)}
                   className="rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-xs text-slate-700 dark:text-slate-300">Auto Inc</span>
@@ -474,10 +532,8 @@ export const PropertiesPanel: React.FC = () => {
               Relation Type
             </label>
             <select
-              value={selectedRel.relationType}
-              onChange={(e) =>
-                updateRelationship(selectedRel.id, { relationType: e.target.value as RelationType })
-              }
+              value={relationTypeInput}
+              onChange={(e) => setRelationTypeInput(e.target.value as RelationType)}
               className="w-full px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none text-slate-700 dark:text-slate-300"
             >
               <option value="OneToOne">One-to-One (1 : 1)</option>
@@ -492,10 +548,8 @@ export const PropertiesPanel: React.FC = () => {
               ON DELETE Rule
             </label>
             <select
-              value={selectedRel.onDelete}
-              onChange={(e) =>
-                updateRelationship(selectedRel.id, { onDelete: e.target.value as ReferentialRule })
-              }
+              value={onDeleteInput}
+              onChange={(e) => setOnDeleteInput(e.target.value as ReferentialRule)}
               className="w-full px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none text-slate-700 dark:text-slate-300"
             >
               <option value="CASCADE">CASCADE</option>
@@ -510,10 +564,8 @@ export const PropertiesPanel: React.FC = () => {
               ON UPDATE Rule
             </label>
             <select
-              value={selectedRel.onUpdate}
-              onChange={(e) =>
-                updateRelationship(selectedRel.id, { onUpdate: e.target.value as ReferentialRule })
-              }
+              value={onUpdateInput}
+              onChange={(e) => setOnUpdateInput(e.target.value as ReferentialRule)}
               className="w-full px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none text-slate-700 dark:text-slate-300"
             >
               <option value="CASCADE">CASCADE</option>
@@ -523,7 +575,13 @@ export const PropertiesPanel: React.FC = () => {
             </select>
           </div>
 
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2">
+            <button
+              onClick={handleSaveRelationship}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold shadow transition"
+            >
+              Save Changes
+            </button>
             <button
               onClick={() => deleteRelationship(selectedRel.id)}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-red-200 dark:border-red-950 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-md text-xs font-semibold transition"

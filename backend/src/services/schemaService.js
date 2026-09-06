@@ -58,12 +58,12 @@ class SchemaService {
   }
 
   // Get full schema
-  async getSchema(projectId, userId) {
+  async getSchema(projectId, userId, connection = null) {
     await this.verifyProjectOwnership(projectId, userId);
 
-    const tables = await tableRepository.findAllByProjectId(projectId);
-    const columns = await columnRepository.findAllByProjectId(projectId);
-    const relationships = await relationshipRepository.findAllByProjectId(projectId);
+    const tables = await tableRepository.findAllByProjectId(projectId, connection);
+    const columns = await columnRepository.findAllByProjectId(projectId, connection);
+    const relationships = await relationshipRepository.findAllByProjectId(projectId, connection);
 
     // Group columns by table_id
     const columnsByTable = {};
@@ -117,18 +117,44 @@ class SchemaService {
 
   // Table operations
   async createTable(userId, tableData) {
-    const { projectId, name, x, y, width, height, color } = tableData;
+    const { projectId, name, x, y, width, height, color, columns } = tableData;
     await this.verifyProjectOwnership(projectId, userId);
 
-    const existing = await tableRepository.findByName(projectId, name);
-    if (existing) {
-      const error = new Error(`Table name '${name}' already exists in this project`);
-      error.statusCode = 400;
-      throw error;
-    }
+    return await sequelize.transaction(async (t) => {
+      const existing = await tableRepository.findByName(projectId, name, t);
+      if (existing) {
+        const error = new Error(`Table name '${name}' already exists in this project`);
+        error.statusCode = 400;
+        throw error;
+      }
 
-    return await tableRepository.create({
-      projectId, name, x, y, width, height, color
+      const table = await tableRepository.create({
+        projectId, name, x, y, width, height, color
+      }, t);
+
+      let createdCols = [];
+      if (columns && Array.isArray(columns) && columns.length > 0) {
+        const colsToCreate = columns.map(c => ({
+          table_id: table.id,
+          name: c.name,
+          datatype: c.datatype || 'INT',
+          length: c.length || null,
+          nullable: c.nullable !== false,
+          primary_key: c.primaryKey === true,
+          foreign_key: c.foreignKey === true,
+          unique_key: c.uniqueKey === true,
+          auto_increment: c.autoIncrement === true,
+          default_value: c.defaultValue || null,
+          comment: c.comment || null
+        }));
+        const colRecords = await Column.bulkCreate(colsToCreate, { transaction: t });
+        createdCols = colRecords.map(c => c.toJSON());
+      }
+
+      return {
+        ...table,
+        columns: createdCols
+      };
     });
   }
 
@@ -387,7 +413,34 @@ class SchemaService {
         });
       }
 
-      return await this.getSchema(projectId, userId);
+      return await this.getSchema(projectId, userId, t);
+    });
+  }
+  // Bulk Clear Schema
+  async clearSchema(userId, projectId) {
+    await this.verifyProjectOwnership(projectId, userId);
+    return await sequelize.transaction(async (t) => {
+      await Relationship.destroy({ where: { project_id: projectId }, transaction: t });
+      await Table.destroy({ where: { project_id: projectId }, transaction: t });
+      return { success: true };
+    });
+  }
+
+  // Bulk Update Table Positions
+  async updateTablePositions(userId, projectId, positions) {
+    await this.verifyProjectOwnership(projectId, userId);
+    if (!positions || !Array.isArray(positions)) return { success: true };
+
+    return await sequelize.transaction(async (t) => {
+      for (const pos of positions) {
+        if (pos.id && pos.x !== undefined && pos.y !== undefined) {
+          await Table.update(
+            { x: pos.x, y: pos.y },
+            { where: { id: pos.id, project_id: projectId }, transaction: t }
+          );
+        }
+      }
+      return { success: true };
     });
   }
 }

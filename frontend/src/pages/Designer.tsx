@@ -56,25 +56,31 @@ export const Designer: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     const load = async () => {
       setLoading(true);
       try {
         const projData = await getProject(projId);
+        if (!isMounted) return;
         setLocalProject(projData);
         setProject(projData);
         await loadSchema(projId);
       } catch (err) {
+        if (!isMounted) return;
         console.error('Failed to load project schema:', err);
         alert('Failed to load project schema. Returning to dashboard.');
         navigate('/dashboard');
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     if (projId) {
       load();
     }
-  }, [projId, loadSchema, setProject, navigate]);
+    return () => {
+      isMounted = false;
+    };
+  }, [projId]);
 
   useEffect(() => {
     if (toast) {
