@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import { Eye, EyeOff } from 'lucide-react';
@@ -12,8 +12,11 @@ export const Register: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [tempToken, setTempToken] = useState('');
-  const [otpCode, setOtpCode] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   
+  const otpCode = otpDigits.join('');
+
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
@@ -94,8 +97,35 @@ export const Register: React.FC = () => {
     }
   };
 
+  const handleDigitChange = (index: number, value: string) => {
+    const digit = value.replace(/\D/g, '').slice(-1);
+    const newDigits = [...otpDigits];
+    newDigits[index] = digit;
+    setOtpDigits(newDigits);
+    if (digit && index < 5) otpRefs.current[index + 1]?.focus();
+  };
+
+  const handleDigitKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleDigitPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (paste.length > 0) {
+      const newDigits = [...otpDigits];
+      paste.split('').forEach((char, i) => { if (i < 6) newDigits[i] = char; });
+      setOtpDigits(newDigits);
+      const focusIndex = Math.min(paste.length, 5);
+      otpRefs.current[focusIndex]?.focus();
+    }
+  };
+
   const handleGoogleSuccess = async (credentialResponse: any) => {
     if (credentialResponse.credential) {
+
       setLoading(true);
       setError('');
       try {
@@ -258,19 +288,26 @@ export const Register: React.FC = () => {
               </div>
             )}
 
-            <form onSubmit={handleOtpSubmit} className="space-y-4">
-              <div className="space-y-1.5 text-center">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">6-Digit Security Code</label>
-                <input
-                  required
-                  type="text"
-                  maxLength={6}
-                  placeholder="000000"
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  className="w-full px-4 py-3 bg-slate-700/60 border border-indigo-500/50 rounded-xl text-center text-3xl font-mono tracking-[0.6em] text-indigo-300 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition shadow-inner"
-                  autoFocus
-                />
+            <form onSubmit={handleOtpSubmit} className="space-y-5">
+              <div className="space-y-3 text-center">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">6-Digit Security Code</label>
+                <div className="flex gap-2 justify-center">
+                  {otpDigits.map((digit, i) => (
+                    <input
+                      key={i}
+                      ref={(el) => { otpRefs.current[i] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleDigitChange(i, e.target.value)}
+                      onKeyDown={(e) => handleDigitKeyDown(i, e)}
+                      onPaste={i === 0 ? handleDigitPaste : undefined}
+                      className="w-12 h-14 text-center text-2xl font-mono font-bold border-2 border-slate-600 rounded-xl bg-slate-700/50 text-indigo-300 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40 transition caret-transparent"
+                      autoFocus={i === 0}
+                    />
+                  ))}
+                </div>
               </div>
 
               <button
@@ -287,7 +324,7 @@ export const Register: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setStep('REGISTER');
-                  setOtpCode('');
+                  setOtpDigits(['', '', '', '', '', '']);
                   setError('');
                   setSuccessMsg('');
                 }}

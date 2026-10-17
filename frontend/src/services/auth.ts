@@ -35,7 +35,8 @@ export const googleLogin = async (credential?: string, name?: string, email?: st
 
 export const register = async (name: string, email: string, password: string): Promise<any> => {
   const response: any = await api.post('/auth/register', { name, email, password });
-  if (response.success && response.data?.token) {
+  // Only persist session if verification is not required (e.g. OTP bypassed edge case)
+  if (response.success && response.data?.token && !response.data?.requireVerification) {
     localStorage.setItem('token', response.data.token);
     localStorage.setItem('user', JSON.stringify(response.data.user));
   }
