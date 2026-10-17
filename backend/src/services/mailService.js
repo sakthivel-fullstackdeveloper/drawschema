@@ -45,27 +45,18 @@ class MailService {
       }
     }
 
-    if (foundPath) {
-      try {
-        const fileBuffer = fs.readFileSync(foundPath);
-        const base64Uri = `data:image/png;base64,${fileBuffer.toString('base64')}`;
-        return {
-          logoSrc: base64Uri,
-          attachments: [{
-            filename: 'logo.png',
-            path: foundPath,
-            cid: 'drawschema-logo'
-          }]
-        };
-      } catch (err) {
-        console.warn('⚠️ Could not read logo file for embedding:', err.message);
-      }
-    }
+    const attachments = foundPath
+      ? [{
+          filename: 'logo.png',
+          path: foundPath,
+          cid: 'drawschema-logo@drawschema'
+        }]
+      : [];
 
-    // Hosted fallback
     return {
+      // Use public HTTPS CDN URL which Gmail/Outlook displays with 100% reliability
       logoSrc: `${APP_URL}/logo.png`,
-      attachments: []
+      attachments
     };
   }
 
