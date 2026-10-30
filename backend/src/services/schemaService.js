@@ -170,15 +170,19 @@ class SchemaService {
       }
     }
 
-    const success = await tableRepository.update(id, tableData);
-    if (!success) {
-      throw new Error('Table update failed');
-    }
+    // update() returns true or false; false just means no rows changed (data unchanged) — not an error
+    await tableRepository.update(id, tableData);
     return await tableRepository.findById(id);
   }
 
   async deleteTable(userId, id) {
-    await this.verifyTableOwnership(id, userId);
+    try {
+      await this.verifyTableOwnership(id, userId);
+    } catch (err) {
+      // Already deleted — treat as success (idempotent delete)
+      if (err.statusCode === 404) return true;
+      throw err;
+    }
     return await tableRepository.delete(id);
   }
 
@@ -241,15 +245,19 @@ class SchemaService {
 
   async updateRelationship(userId, id, relData) {
     await this.verifyRelationshipOwnership(id, userId);
-    const success = await relationshipRepository.update(id, relData);
-    if (!success) {
-      throw new Error('Relationship update failed');
-    }
+    // update() returning false just means no rows changed — not an error
+    await relationshipRepository.update(id, relData);
     return await relationshipRepository.findById(id);
   }
 
   async deleteRelationship(userId, id) {
-    await this.verifyRelationshipOwnership(id, userId);
+    try {
+      await this.verifyRelationshipOwnership(id, userId);
+    } catch (err) {
+      // Already deleted — treat as success (idempotent delete)
+      if (err.statusCode === 404) return true;
+      throw err;
+    }
     return await relationshipRepository.delete(id);
   }
 
