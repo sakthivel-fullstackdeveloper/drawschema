@@ -7,7 +7,8 @@ exports.createTable = [
   body('y').optional().isFloat().withMessage('Position y must be a number'),
   body('width').optional().isFloat().withMessage('Width must be a number'),
   body('height').optional().isFloat().withMessage('Height must be a number'),
-  body('color').optional().isString().withMessage('Color must be a string')
+  body('color').optional().isString().withMessage('Color must be a string'),
+  body('columns').optional().isArray().withMessage('Columns must be an array')
 ];
 
 exports.updateTable = [

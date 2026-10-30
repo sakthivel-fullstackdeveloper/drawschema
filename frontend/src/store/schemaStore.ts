@@ -42,7 +42,7 @@ export interface SchemaState {
   toggleDarkMode: () => void;
   setSnapToGrid: (snap: boolean) => void;
   setSearchTerm: (term: string) => void;
-  addTable: (name: string, x?: number, y?: number) => Promise<void>;
+  addTable: (name: string, x?: number, y?: number, columns?: any[]) => Promise<void>;
   updateTable: (tableId: number, data: Partial<Omit<Table, 'id' | 'columns'>>) => Promise<void>;
   updateTablePositionLocal: (tableId: number, x: number, y: number) => void;
   saveTablePosition: (tableId: number, x: number, y: number) => Promise<void>;
@@ -84,6 +84,7 @@ export interface SchemaState {
   incrementChangeCount: () => void;
   toggleSelectTable: (tableId: number) => void;
   clearSelectedTables: () => void;
+  executeAIPlan: (actionPlan: { explanation: string; actions: any[] }) => Promise<void>;
 }
 
 // Custom hook matching Zustand store interface
@@ -102,7 +103,7 @@ export const useSchemaStore = (): SchemaState => {
     setSearchTerm: (term: string) => dispatch(schemaSlice.actions.setSearchTerm(term)),
 
     // Table Actions
-    addTable: (name: string, x?: number, y?: number) => dispatch(thunks.addTable({ name, x, y })).unwrap().then(() => {}),
+    addTable: (name: string, x?: number, y?: number, columns?: any[]) => dispatch(thunks.addTable({ name, x, y, columns })).unwrap().then(() => {}),
     updateTable: (tableId: number, data: Partial<Omit<Table, 'id' | 'columns'>>) => dispatch(thunks.updateTable({ tableId, data })).unwrap().then(() => {}),
     updateTablePositionLocal: (tableId: number, x: number, y: number) => dispatch(schemaSlice.actions.updateTablePositionLocal({ tableId, x, y })),
     saveTablePosition: (tableId: number, x: number, y: number) => dispatch(thunks.saveTablePosition({ tableId, x, y })).unwrap().then(() => {}),
@@ -158,7 +159,9 @@ export const useSchemaStore = (): SchemaState => {
     exitPreview: () => dispatch(schemaSlice.actions.exitPreview()),
     incrementChangeCount: () => dispatch(thunks.incrementChangeCount()).unwrap().then(() => {}),
     toggleSelectTable: (tableId: number) => dispatch(schemaSlice.actions.toggleSelectTableLocal(tableId)),
-    clearSelectedTables: () => dispatch(schemaSlice.actions.clearSelectedTablesLocal())
+    clearSelectedTables: () => dispatch(schemaSlice.actions.clearSelectedTablesLocal()),
+    executeAIPlan: (actionPlan: { explanation: string; actions: any[] }) =>
+      dispatch(thunks.executeAIPlan({ actionPlan })).unwrap().then(() => {})
   }), [dispatch]);
 
   return useMemo(() => ({

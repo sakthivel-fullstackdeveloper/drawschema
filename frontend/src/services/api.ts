@@ -28,7 +28,15 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response && error.response.status === 401) {
+    // Preserve Axios cancellation errors intact
+    if (axios.isCancel(error) || error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
+      return Promise.reject(error);
+    }
+
+    // Only log out if DrawSchema's own session token is rejected, NOT when an external downstream API call fails
+    const isAICommandRoute = error.config?.url?.includes('/ai/');
+
+    if (error.response && error.response.status === 401 && !isAICommandRoute) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       // If we are not on the login/register page, redirect to login

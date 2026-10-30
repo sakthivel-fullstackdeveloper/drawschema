@@ -59,9 +59,12 @@ desktop.ini
 *.sqlite3
 *.db
 
-# ─── Test Coverage ───────────────────────────────────────────
+# ─── Test Coverage & Dev Test Suites ───────────────────────────
 coverage/
 .nyc_output/
+backend/test_*.js
+frontend/test_*.cjs
+frontend/tests/
 
 # ─── Temp Files ──────────────────────────────────────────────
 tmp/

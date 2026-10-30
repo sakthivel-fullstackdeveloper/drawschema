@@ -6,6 +6,7 @@ const authRoutes = require('./routes/authRoutes');
 const projectRoutes = require('./routes/projectRoutes');
 const schemaRoutes = require('./routes/schemaRoutes');
 const versionRoutes = require('./routes/versionRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 
 const path = require('path');
@@ -37,6 +38,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api', schemaRoutes);
 app.use('/api', versionRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Base route for health check
 app.get('/health', (req, res) => {

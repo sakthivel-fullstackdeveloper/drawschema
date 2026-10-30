@@ -7,6 +7,7 @@ import { PropertiesPanel } from '../components/panels/PropertiesPanel';
 import { DesignerCanvas } from '../components/canvas/DesignerCanvas';
 import { ReactFlowProvider } from '@xyflow/react';
 import { VersionHistoryDrawer } from '../components/panels/VersionHistoryDrawer';
+import { FloatingAIRobot } from '../components/panels/FloatingAIRobot';
 import { getProject } from '../services/project';
 import * as versionApi from '../services/version';
 import type { Project } from '../types';
@@ -331,7 +332,7 @@ export const Designer: React.FC = () => {
       {/* Toast Notification Box */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-55 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-2xl animate-in slide-in-from-right-full duration-300 text-white ${
+          className={`fixed bottom-24 right-6 z-55 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-2xl animate-in slide-in-from-right-full duration-300 text-white ${
             toast.type === 'error'
               ? 'bg-red-600 border border-red-500/30'
               : toast.type === 'success'
@@ -349,6 +350,9 @@ export const Designer: React.FC = () => {
           <span className="text-xs font-semibold">{toast.message}</span>
         </div>
       )}
+
+      {/* Persistent Floating AI Copilot Robot at bottom-right */}
+      <FloatingAIRobot projectId={projId} />
     </div>
   );
 };

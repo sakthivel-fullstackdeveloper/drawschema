@@ -320,15 +320,15 @@ export const DesignerCanvas: React.FC = () => {
         className="react-flow-designer"
       >
         <Background gap={15} size={1} color="#cbd5e1" className="dark:opacity-10" />
-        <Controls position="bottom-left" />
+        <Controls position="top-left" className="!top-4 !left-4" />
         <MiniMap
-          position="bottom-right"
+          position="bottom-left"
           nodeColor={(n) => {
             const table = n.data?.table as any;
             return table?.color || '#3b82f6';
           }}
           maskColor="rgba(241, 245, 249, 0.5)"
-          className="dark:!bg-slate-900 dark:!border-slate-800"
+          className="dark:!bg-slate-900 dark:!border-slate-800 !bottom-4 !left-4 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800"
         />
       </ReactFlow>
     </div>

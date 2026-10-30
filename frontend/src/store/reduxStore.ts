@@ -93,7 +93,7 @@ export const loadSchema = createAsyncThunk(
 
 export const addTable = createAsyncThunk(
   'schema/addTable',
-  async ({ name, x = 100, y = 100 }: { name: string; x?: number; y?: number }, thunkAPI) => {
+  async ({ name, x = 100, y = 100, columns }: { name: string; x?: number; y?: number; columns?: any[] }, thunkAPI) => {
     const state = thunkAPI.getState() as RootState;
     const project = state.schema.currentProject;
     if (!project) throw new Error('No active project');
@@ -113,7 +113,7 @@ export const addTable = createAsyncThunk(
     }
 
     try {
-      const response: any = await api.post('/tables', {
+      const payload: any = {
         projectId: project.id,
         name,
         x: finalX,
@@ -121,13 +121,32 @@ export const addTable = createAsyncThunk(
         width: 220,
         height: 180,
         color: '#3b82f6'
-      });
+      };
+      if (columns && Array.isArray(columns) && columns.length > 0) {
+        payload.columns = columns;
+      }
+
+      const response: any = await api.post('/tables', payload);
 
       if (response.success) {
         const newTable: Table = {
           ...response.data.table,
-          columns: []
+          columns: (response.data.table.columns || []).map((c: any) => ({
+            id: c.id,
+            tableId: c.table_id || c.tableId || response.data.table.id,
+            name: c.name,
+            datatype: c.datatype,
+            length: c.length || null,
+            nullable: c.nullable ?? true,
+            primaryKey: c.primary_key ?? c.primaryKey ?? false,
+            foreignKey: c.foreign_key ?? c.foreignKey ?? false,
+            uniqueKey: c.unique_key ?? c.uniqueKey ?? false,
+            autoIncrement: c.auto_increment ?? c.autoIncrement ?? false,
+            defaultValue: c.default_value ?? c.defaultValue ?? null,
+            comment: c.comment || null
+          }))
         };
+        thunkAPI.dispatch(schemaSlice.actions.addTableLocal(newTable));
         thunkAPI.dispatch(incrementChangeCount());
         thunkAPI.dispatch(schemaSlice.actions.showToast({
           message: `Table "${name}" created successfully!`,
@@ -457,6 +476,65 @@ export const deleteSelected = createAsyncThunk(
       await thunkAPI.dispatch(deleteColumn(selectedElement.id));
     } else if (selectedElement.type === 'relationship') {
       await thunkAPI.dispatch(deleteRelationship(selectedElement.id));
+    }
+  }
+);
+
+export const executeAIPlan = createAsyncThunk(
+  'schema/executeAIPlan',
+  async (
+    { actionPlan }: { actionPlan: { explanation: string; actions: any[] } },
+    thunkAPI
+  ) => {
+    const state = thunkAPI.getState() as RootState;
+    const { currentProject } = state.schema;
+    if (!currentProject) throw new Error('No active project');
+
+    // 1. Group Undo: Create exactly ONE snapshot before applying the AI command
+    const backup = { tables: state.schema.tables, relationships: state.schema.relationships };
+    thunkAPI.dispatch(schemaSlice.actions.pushHistory());
+
+    try {
+      // 2. Call transactional atomic backend execution endpoint
+      const response: any = await api.post('/ai/execute-plan', {
+        projectId: currentProject.id,
+        actionPlan
+      });
+
+      if (response.success && response.data?.schema) {
+        // 3. Atomically synchronize Redux with server-confirmed schema
+        thunkAPI.dispatch(schemaSlice.actions.setSchemaLocal(response.data.schema));
+        
+        const summary = response.data.summary || {};
+        const changesText = [
+          summary.tablesCreated ? `${summary.tablesCreated} table(s) created` : null,
+          summary.columnsAdded ? `${summary.columnsAdded} column(s) added` : null,
+          summary.columnsRenamed ? `${summary.columnsRenamed} column(s) renamed` : null,
+          summary.columnsUpdated ? `${summary.columnsUpdated} column(s) updated` : null,
+          summary.relationshipsCreated ? `${summary.relationshipsCreated} relationship(s) created` : null
+        ].filter(Boolean).join(', ');
+
+        thunkAPI.dispatch(
+          schemaSlice.actions.showToast({
+            message: `AI changes applied successfully!${changesText ? ` (${changesText})` : ''}`,
+            type: 'success'
+          })
+        );
+        return response.data;
+      } else {
+        throw new Error(response.message || 'Failed to execute action plan');
+      }
+    } catch (err: any) {
+      // 4. On failure, rollback Redux to pre-command state
+      thunkAPI.dispatch(schemaSlice.actions.rollbackState(backup));
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to execute AI action plan';
+      thunkAPI.dispatch(
+        schemaSlice.actions.showToast({
+          message: errorMsg,
+          type: 'error'
+        })
+      );
+      throw new Error(errorMsg);
     }
   }
 );
