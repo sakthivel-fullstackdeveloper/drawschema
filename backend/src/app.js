@@ -19,11 +19,23 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
+const ALLOWED_ORIGINS = [
+  'https://drawschema.fwitech.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
 const corsOptions = {
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS policy: origin '${origin}' is not allowed`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200  // Some older browsers choke on 204
 };
 
 app.use(cors(corsOptions));
