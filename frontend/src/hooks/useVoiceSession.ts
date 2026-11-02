@@ -94,6 +94,11 @@ export const useVoiceSession = (
   // Deduplication: track last submitted final transcript to avoid re-processing on recognition restart.
   const lastSubmittedTranscriptRef = useRef<string>('');
 
+  // Controlled restart refs to prevent rapid-fire restart loops (especially on mobile)
+  const restartTimerRef = useRef<any>(null);
+  const consecutiveQuickEndsRef = useRef<number>(0);
+  const lastStartTimeRef = useRef<number>(0);
+
   // Session generation counter — incremented on every startSession() and every interrupt().
   // Each async callback (utterance.onend, utterance.onerror, recognition.onend, setTimeout) captures
   // its generation at creation time and no-ops if the current generation has advanced past it.
@@ -385,6 +390,11 @@ export const useVoiceSession = (
   // Clean stop for complete session (triggered by "End Conversation" button)
   const stopSession = useCallback(() => {
     isExplicitStopRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    consecutiveQuickEndsRef.current = 0;
     stopSpeaking();
     cleanupAudioVAD();
 
@@ -408,6 +418,11 @@ export const useVoiceSession = (
     setFinalTranscript('');
     lastSubmittedTranscriptRef.current = '';
     isExplicitStopRef.current = false;
+    consecutiveQuickEndsRef.current = 0;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     setSessionState('connecting');
 
     const SpeechRecognitionClass =
@@ -425,20 +440,35 @@ export const useVoiceSession = (
     stopSession();
     isExplicitStopRef.current = false;
     sessionGenerationRef.current += 1;
-    console.log(`[SESSION gen=${sessionGenerationRef.current}] startSession() initiated`);
+    const currentGen = sessionGenerationRef.current;
+    console.log(`[SESSION gen=${currentGen}] startSession() initiated`);
 
-    // Initialize VAD for barge-in volume sensing
-    await setupAudioVAD();
+    // Detect mobile environment (Android, iOS, mobile devices)
+    const isMobile = typeof navigator !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (('maxTouchPoints' in navigator) && navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent))
+    );
+
+    // On mobile, running getUserMedia concurrently with SpeechRecognition hardware-locks
+    // the audio track and causes rapid start/stop beeping loops. Only initialize VAD on desktop.
+    if (!isMobile) {
+      await setupAudioVAD();
+    } else {
+      console.log('[SESSION] Mobile device detected: skipping concurrent getUserMedia VAD to avoid hardware microphone lock.');
+    }
 
     try {
       const recognition = new SpeechRecognitionClass();
-      recognition.continuous = true;
+      // On mobile browsers (especially Android Chrome), continuous=true causes immediate crashes or early timeouts.
+      // Use continuous=false on mobile (with controlled restart) and continuous=true on desktop.
+      recognition.continuous = !isMobile;
       recognition.interimResults = true;
       recognition.lang = lang;
       // maxAlternatives=1 reduces internal processing overhead and speeds up result delivery
       recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
+        lastStartTimeRef.current = Date.now();
         setSessionState('listening');
         setError(null);
       };
@@ -539,21 +569,58 @@ export const useVoiceSession = (
       recognition.onend = () => {
         // Continuous session: If user didn't explicitly end session, auto-restart to stay always-ready!
         if (!isExplicitStopRef.current && stateRef.current !== 'error' && stateRef.current !== 'idle') {
-          try {
-            recognition.start();
-            console.log('[STT] Recognition auto-restarted after onend');
-          } catch (e: any) {
-            if (e.name === 'InvalidStateError') {
-              // Recognition is already starting (race between our restart and browser's internal lifecycle).
-              // This is safe to ignore — recognition will fire onstart itself and the session stays alive.
-              // DO NOT fall through to setSessionState('idle') here; that is the primary stuck-session cause.
-              console.log('[STT] Restart skipped — recognition already starting (InvalidStateError, safe to ignore)');
+          // If a new session generation started, discard this instance
+          if (sessionGenerationRef.current !== currentGen) {
+            return;
+          }
+
+          const sessionDuration = Date.now() - lastStartTimeRef.current;
+          // If the recognition session ended in under 1 second without user stopping it,
+          // count it as a quick-end to detect infinite rapid-looping
+          if (sessionDuration < 1000) {
+            consecutiveQuickEndsRef.current += 1;
+          } else {
+            consecutiveQuickEndsRef.current = 0;
+          }
+
+          // Safety guard: if 5 consecutive quick-ends occur, throttle or stop to avoid infinite mic beeping
+          if (consecutiveQuickEndsRef.current >= 5) {
+            console.warn('[STT] Multiple rapid recognition disconnects detected. Pausing auto-restart to prevent mic loop.');
+            consecutiveQuickEndsRef.current = 0;
+            setError('Voice recognition paused due to repeated interruptions. Click Start Conversation to resume.');
+            setSessionState('idle');
+            return;
+          }
+
+          // Delay restart (desktop: 150ms buffer, mobile: 400ms buffer to allow Android audio system to release)
+          const restartDelay = isMobile ? 400 : 150;
+
+          if (restartTimerRef.current) {
+            clearTimeout(restartTimerRef.current);
+          }
+
+          restartTimerRef.current = setTimeout(() => {
+            restartTimerRef.current = null;
+            if (isExplicitStopRef.current || sessionGenerationRef.current !== currentGen) {
               return;
             }
-            // A real, non-recoverable recognition failure (e.g., hardware removed, permission revoked).
-            console.warn('[STT] Recognition restart failed with unexpected error:', e.name, e.message);
-            setSessionState('error');
-          }
+
+            try {
+              if (recognitionRef.current) {
+                recognitionRef.current.start();
+                console.log(`[STT] Recognition auto-restarted after controlled ${restartDelay}ms delay`);
+              }
+            } catch (e: any) {
+              if (e.name === 'InvalidStateError') {
+                // Recognition is already starting (race between our restart and browser's internal lifecycle).
+                // Safe to ignore — recognition will fire onstart itself.
+                console.log('[STT] Restart skipped — recognition already starting (InvalidStateError, safe to ignore)');
+                return;
+              }
+              console.warn('[STT] Recognition restart failed with unexpected error:', e.name, e.message);
+              setSessionState('error');
+            }
+          }, restartDelay);
         } else if (isExplicitStopRef.current) {
           setSessionState('idle');
         }
