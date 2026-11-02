@@ -91,8 +91,12 @@ export const AICommandModal: React.FC<AICommandModalProps> = ({
       handleUserInterruption(reason);
     },
     onInterimTranscript: (interimText) => {
-      // Only treat confirmed speech with substantive content as barge-in user interaction
-      // Single characters, punctuation, or empty/noise artifacts must not abort active requests
+      // Only treat confirmed speech with substantive content as barge-in user interaction.
+      // NOTE: We deliberately do NOT call stopSpeaking() here — the barge-in interruption
+      // is handled entirely inside useVoiceSession's recognition.onresult, which detects
+      // speech while stateRef.current === 'assistant_speaking' and calls interrupt() which
+      // calls stopSpeaking(). handleUserInterruption() here only cancels the pending AI
+      // network request; combining both would cause double-interrupt side effects.
       const cleaned = (interimText || '').trim();
       if (cleaned.length >= 2 && /[a-zA-Z0-9]{2,}/.test(cleaned)) {
         handleUserInterruption(`Interim voice input: "${cleaned}"`);

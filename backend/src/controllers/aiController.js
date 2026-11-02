@@ -3,6 +3,18 @@ const aiExecutionService = require('../services/aiExecutionService');
 const schemaService = require('../services/schemaService');
 const { validateActionPlanSemantics } = require('../validators/aiValidator');
 
+// Mirror the execution service allowlist here for defense-in-depth at the plan preview layer.
+// This prevents a destructive action from being returned to the client even for preview.
+const ALLOWED_AI_ACTION_TYPES = new Set([
+  'CREATE_TABLE',
+  'ADD_COLUMN',
+  'RENAME_COLUMN',
+  'UPDATE_COLUMN',
+  'CREATE_RELATIONSHIP',
+  'EXPLAIN_SCHEMA',
+  'ANALYZE_SCHEMA'
+]);
+
 class AIController {
   /**
    * Generates a previewable, validated AI action plan for a given prompt and project.
@@ -42,7 +54,21 @@ class AIController {
       // 3. Generate action plan via Groq Service (runs structural validation inside, includes history)
       const actionPlan = await aiService.generateActionPlan(prompt, currentSchema, Array.isArray(history) ? history : []);
 
-      // 4. Run Semantic Validation against authoritative schema
+      // 4a. Allowlist enforcement — block destructive action types before returning the plan to the client.
+      // This is a defense-in-depth guard: even if the AI generates an unsupported action type,
+      // it will not be forwarded to the frontend for execution.
+      for (const action of (actionPlan.actions || [])) {
+        if (!ALLOWED_AI_ACTION_TYPES.has(action.type)) {
+          return res.status(403).json({
+            success: false,
+            message: `Destructive or unsupported action type '${action.type}' is not permitted through the AI assistant. ` +
+                     'To perform destructive operations, use the manual UI workflow.',
+            data: {}
+          });
+        }
+      }
+
+      // 4b. Run Semantic Validation against authoritative schema
       const semanticResult = validateActionPlanSemantics(actionPlan.actions, currentSchema);
       if (!semanticResult.isValid) {
         return res.status(422).json({

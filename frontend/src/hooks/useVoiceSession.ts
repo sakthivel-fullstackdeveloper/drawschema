@@ -84,6 +84,12 @@ export const useVoiceSession = (
   const stateRef = useRef<VoiceSessionState>('idle');
   const selectedMaleVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
+  // isTTSPlayingRef tracks whether TTS is actively speaking, independently of sessionState.
+  // On mobile, recognition.onstart fires during TTS playback (when recognition auto-restarts)
+  // which transitions sessionState → 'listening'. This means stateRef.current can be 'listening'
+  // while audio is still playing. The barge-in guard must check THIS ref, not stateRef, on mobile.
+  const isTTSPlayingRef = useRef<boolean>(false);
+
   // VAD onset confirmation counters — require sustained energy to detect possible speech activity
   const onsetCounterRef = useRef<number>(0);
   // Continuous adaptive noise floor baseline: tracks environmental background (fans, AC, room hum)
@@ -158,6 +164,8 @@ export const useVoiceSession = (
       window.speechSynthesis.cancel();
       activeUtteranceRef.current = null;
     }
+    // Always clear the TTS-playing flag so barge-in guards reset correctly
+    isTTSPlayingRef.current = false;
   }, []);
 
   // Barge-In Interruption Handler
@@ -253,11 +261,13 @@ export const useVoiceSession = (
           console.log(`[TTS gen=${speakGeneration}] onstart ignored — generation stale (current=${sessionGenerationRef.current})`);
           return;
         }
+        isTTSPlayingRef.current = true;
         setSessionState('assistant_speaking');
       };
 
       utterance.onend = () => {
         activeUtteranceRef.current = null;
+        isTTSPlayingRef.current = false;
         if (sessionGenerationRef.current !== speakGeneration) {
           // This speak() was cancelled by interrupt() — do NOT overwrite the new barge-in state.
           console.log(`[TTS gen=${speakGeneration}] onend ignored — stale (current=${sessionGenerationRef.current})`);
@@ -285,6 +295,7 @@ export const useVoiceSession = (
 
       utterance.onerror = (e) => {
         activeUtteranceRef.current = null;
+        isTTSPlayingRef.current = false;
         if (sessionGenerationRef.current !== speakGeneration) {
           // Expected: this fires as 'interrupted'/'canceled' because interrupt() called stopSpeaking().
           // The new session state has already been set by interrupt() — do NOT overwrite it here.
@@ -605,9 +616,14 @@ export const useVoiceSession = (
             if (onInterimTranscript) onInterimTranscript(trimmedInterim);
 
             // SPEECH-CONFIRMED BARGE-IN INTERRUPTION:
-            if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
+            // Check both the state machine AND the isTTSPlayingRef because on mobile,
+            // recognition.onstart fires during TTS playback (when recognition auto-restarts),
+            // which sets sessionState → 'listening'. In that case stateRef.current would be
+            // 'listening' instead of 'assistant_speaking', so we must also check isTTSPlayingRef.
+            const isTTSActive = stateRef.current === 'assistant_speaking' || isTTSPlayingRef.current;
+            if (isTTSActive || stateRef.current === 'processing') {
               if (isGenuineSpeech(trimmedInterim)) {
-                console.log('[STT] Confirmed speech barge-in (interim):', trimmedInterim);
+                console.log('[STT] Confirmed speech barge-in (interim):', trimmedInterim, '| TTS playing:', isTTSPlayingRef.current, '| state:', stateRef.current);
                 interrupt(`Confirmed speech: "${trimmedInterim}"`);
               } else {
                 console.log('[STT] Ignored non-speech interim noise while speaking:', trimmedInterim);
@@ -624,10 +640,11 @@ export const useVoiceSession = (
             }
             const trimmed = finalized.trim();
 
-            // If assistant was speaking and this is the first finalized result, confirm barge-in
-            if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
+            // If assistant was speaking (by state or by TTS ref) and this is the first finalized result, confirm barge-in
+            const isTTSActiveForFinal = stateRef.current === 'assistant_speaking' || isTTSPlayingRef.current;
+            if (isTTSActiveForFinal || stateRef.current === 'processing') {
               if (isGenuineSpeech(trimmed)) {
-                console.log('[STT] Confirmed speech barge-in (final):', trimmed);
+                console.log('[STT] Confirmed speech barge-in (final):', trimmed, '| TTS playing:', isTTSPlayingRef.current, '| state:', stateRef.current);
                 interrupt(`Confirmed final speech: "${trimmed}"`);
               }
             }

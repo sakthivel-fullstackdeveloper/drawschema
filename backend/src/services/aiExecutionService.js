@@ -5,6 +5,20 @@ const {
   validateActionPlanSemantics
 } = require('../validators/aiValidator');
 
+// Explicit allowlist of action types the AI execution service will ever execute.
+// Any action type NOT in this list — including hypothetical destructive types like
+// CLEAR_ALL_TABLES, DROP_TABLE, DELETE_COLUMN, etc. — is rejected at the backend
+// regardless of how the request was formed or what the AI generated.
+const ALLOWED_AI_ACTION_TYPES = new Set([
+  'CREATE_TABLE',
+  'ADD_COLUMN',
+  'RENAME_COLUMN',
+  'UPDATE_COLUMN',
+  'CREATE_RELATIONSHIP',
+  'EXPLAIN_SCHEMA',
+  'ANALYZE_SCHEMA'
+]);
+
 class AIExecutionService {
   constructor() {
     // Project-level lock map to serialize concurrent/duplicate execution requests per project
@@ -48,6 +62,21 @@ class AIExecutionService {
       }
 
       const { actions } = structResult.data;
+
+      // 2a. Allowlist enforcement — reject any action type not in ALLOWED_AI_ACTION_TYPES.
+      // This is a backend security boundary: destructive operations (e.g. CLEAR_ALL_TABLES,
+      // DROP_TABLE) cannot be executed through the AI execution path under any circumstances,
+      // even if the frontend sends such a request directly.
+      for (const action of actions) {
+        if (!ALLOWED_AI_ACTION_TYPES.has(action.type)) {
+          const err = new Error(
+            `Action type '${action.type}' is not permitted through the AI execution service. ` +
+            'Destructive schema operations must be performed through the manual UI workflow.'
+          );
+          err.statusCode = 403;
+          throw err;
+        }
+      }
 
       // Filter out read-only actions for execution
       const mutationActions = actions.filter(
