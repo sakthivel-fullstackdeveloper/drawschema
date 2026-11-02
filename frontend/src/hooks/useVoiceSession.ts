@@ -99,6 +99,10 @@ export const useVoiceSession = (
   const consecutiveQuickEndsRef = useRef<number>(0);
   const lastStartTimeRef = useRef<number>(0);
 
+  // Mobile speech activity simulation timer for waveform responsiveness without getUserMedia
+  const speechActivityTimerRef = useRef<any>(null);
+  const speechAnimFrameRef = useRef<any>(null);
+
   // Session generation counter — incremented on every startSession() and every interrupt().
   // Each async callback (utterance.onend, utterance.onerror, recognition.onend, setTimeout) captures
   // its generation at creation time and no-ops if the current generation has advanced past it.
@@ -387,12 +391,37 @@ export const useVoiceSession = (
     }
   }, [interrupt]);
 
-  // Clean stop for complete session (triggered by "End Conversation" button)
+  // Helper to stimulate speech activity audioLevel on mobile based on real speech events
+  const pulseMobileAudioLevel = useCallback(() => {
+    // Elevate audio level in response to speech events (interim/final results, soundstart)
+    const targetLevel = 50 + Math.floor(Math.random() * 45); // 50 - 95
+    setAudioLevel(targetLevel);
+
+    if (speechActivityTimerRef.current) {
+      clearTimeout(speechActivityTimerRef.current);
+    }
+
+    // Decay audioLevel naturally when speech pauses
+    speechActivityTimerRef.current = setTimeout(() => {
+      setAudioLevel(15);
+      speechActivityTimerRef.current = setTimeout(() => {
+        setAudioLevel(0);
+      }, 350);
+    }, 450);
+  }, []);
   const stopSession = useCallback(() => {
     isExplicitStopRef.current = true;
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
+    }
+    if (speechActivityTimerRef.current) {
+      clearTimeout(speechActivityTimerRef.current);
+      speechActivityTimerRef.current = null;
+    }
+    if (speechAnimFrameRef.current) {
+      cancelAnimationFrame(speechAnimFrameRef.current);
+      speechAnimFrameRef.current = null;
     }
     consecutiveQuickEndsRef.current = 0;
     stopSpeaking();
@@ -467,6 +496,23 @@ export const useVoiceSession = (
       // maxAlternatives=1 reduces internal processing overhead and speeds up result delivery
       recognition.maxAlternatives = 1;
 
+      // Native SpeechRecognition audio activity hooks for mobile waveform feedback
+      if (isMobile) {
+        recognition.onsoundstart = () => {
+          setAudioLevel(45);
+        };
+        recognition.onspeechstart = () => {
+          setAudioLevel(75);
+          pulseMobileAudioLevel();
+        };
+        recognition.onspeechend = () => {
+          pulseMobileAudioLevel();
+        };
+        recognition.onsoundend = () => {
+          setTimeout(() => setAudioLevel(0), 200);
+        };
+      }
+
       recognition.onstart = () => {
         lastStartTimeRef.current = Date.now();
         setSessionState('listening');
@@ -499,6 +545,9 @@ export const useVoiceSession = (
 
         // When user produces interim speech
         if (interim) {
+          if (isMobile) {
+            pulseMobileAudioLevel();
+          }
           const trimmedInterim = interim.trim();
           setInterimTranscript(trimmedInterim);
           if (onInterimTranscript) onInterimTranscript(trimmedInterim);
@@ -521,6 +570,9 @@ export const useVoiceSession = (
 
         // When user finishes a segment
         if (finalized) {
+          if (isMobile) {
+            pulseMobileAudioLevel();
+          }
           const trimmed = finalized.trim();
 
           // If assistant was speaking and this is the first finalized result, confirm barge-in
@@ -606,9 +658,37 @@ export const useVoiceSession = (
             }
 
             try {
-              if (recognitionRef.current) {
+              if (isMobile) {
+                // On mobile, re-instantiating SpeechRecognition prevents zombie instances
+                // and DOMException: Failed to execute 'start' on 'SpeechRecognition': recognition has already started
+                try {
+                  if (recognitionRef.current) {
+                    recognitionRef.current.abort();
+                  }
+                } catch {
+                  // ignore
+                }
+
+                const freshRecognition = new SpeechRecognitionClass();
+                freshRecognition.continuous = false;
+                freshRecognition.interimResults = true;
+                freshRecognition.lang = lang;
+                freshRecognition.maxAlternatives = 1;
+                freshRecognition.onsoundstart = recognition.onsoundstart;
+                freshRecognition.onspeechstart = recognition.onspeechstart;
+                freshRecognition.onspeechend = recognition.onspeechend;
+                freshRecognition.onsoundend = recognition.onsoundend;
+                freshRecognition.onstart = recognition.onstart;
+                freshRecognition.onresult = recognition.onresult;
+                freshRecognition.onerror = recognition.onerror;
+                freshRecognition.onend = recognition.onend;
+
+                recognitionRef.current = freshRecognition;
+                freshRecognition.start();
+                console.log(`[STT] Fresh mobile recognition instance restarted after controlled ${restartDelay}ms delay`);
+              } else if (recognitionRef.current) {
                 recognitionRef.current.start();
-                console.log(`[STT] Recognition auto-restarted after controlled ${restartDelay}ms delay`);
+                console.log(`[STT] Desktop recognition auto-restarted after controlled ${restartDelay}ms delay`);
               }
             } catch (e: any) {
               if (e.name === 'InvalidStateError') {
