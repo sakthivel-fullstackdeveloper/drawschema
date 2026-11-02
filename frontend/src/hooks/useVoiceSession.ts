@@ -245,6 +245,16 @@ export const useVoiceSession = (
         // Automatic conversation loop: transition seamlessly back to listening without requiring mic click!
         if (!isExplicitStopRef.current && autoLoop) {
           setSessionState('listening');
+          // On mobile, if recognition stopped or was paused during synthesis, restart it cleanly
+          if (recognitionRef.current && stateRef.current !== 'error') {
+            try {
+              recognitionRef.current.start();
+            } catch (err: any) {
+              if (err.name !== 'InvalidStateError') {
+                console.warn('[TTS] Error restarting recognition after speech:', err);
+              }
+            }
+          }
         } else if (isExplicitStopRef.current) {
           setSessionState('idle');
         }
@@ -265,6 +275,15 @@ export const useVoiceSession = (
         // Auto-resume listening even if speech was cancelled or finished
         if (!isExplicitStopRef.current && autoLoop) {
           setSessionState('listening');
+          if (recognitionRef.current && stateRef.current !== 'error') {
+            try {
+              recognitionRef.current.start();
+            } catch (err: any) {
+              if (err.name !== 'InvalidStateError') {
+                console.warn('[TTS] Error restarting recognition after speech error:', err);
+              }
+            }
+          }
         } else if (isExplicitStopRef.current) {
           setSessionState('idle');
         }
@@ -593,8 +612,10 @@ export const useVoiceSession = (
             console.log('[STT] Duplicate or non-speech final transcript suppressed:', trimmed);
             setInterimTranscript('');
           }
-          // Return to listening or processing
-          setSessionState('listening');
+          // Do not overwrite state if assistant has transitioned to speaking or processing
+          if (stateRef.current !== 'assistant_speaking' && stateRef.current !== 'processing' && stateRef.current !== 'executing') {
+            setSessionState('listening');
+          }
         }
       };
 
