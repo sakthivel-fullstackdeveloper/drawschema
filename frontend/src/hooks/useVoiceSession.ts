@@ -99,6 +99,9 @@ export const useVoiceSession = (
   const consecutiveQuickEndsRef = useRef<number>(0);
   const lastStartTimeRef = useRef<number>(0);
 
+  // Safe reference to re-spawn recognition on demand (especially after barge-in/interruptions)
+  const startRecognitionInstanceRef = useRef<(() => void) | null>(null);
+
   // Mobile speech activity simulation timer for waveform responsiveness without getUserMedia
   const speechActivityTimerRef = useRef<any>(null);
   const speechAnimFrameRef = useRef<any>(null);
@@ -165,7 +168,7 @@ export const useVoiceSession = (
     const interruptGeneration = ++sessionGenerationRef.current;
     console.log(`[SESSION gen=${interruptGeneration}] interrupt() — reason: ${reason}`);
 
-    // 1. Immediately silence spoken audio (fires utterance.onerror with 'interrupted' async)
+    // 1. Immediately silence spoken audio (fires utterance.onerror with 'interrupted'/'canceled' async)
     stopSpeaking();
 
     // 2. Notify parent listener to abort active reasoning request and increment turn/request ID
@@ -173,16 +176,35 @@ export const useVoiceSession = (
       onInterrupted(reason);
     }
 
-    // 3. Update state machine — transition directly to 'interrupted' then immediately to 'listening'
-    //    if recognition is active.  No setTimeout needed (that caused a double-write race with the
-    //    stale utterance.onerror callback that also tries to setSessionState after cancel).
+    // 3. Clear any pending restart timers from a previous utterance/recognition cycle
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    consecutiveQuickEndsRef.current = 0;
+
+    // 4. Update state machine — transition directly to 'interrupted' then immediately to 'listening'
     setSessionState('interrupted');
 
-    if (!isExplicitStopRef.current && recognitionRef.current) {
-      // Recognition is still alive — go straight to listening so the user's barge-in words are captured.
+    if (!isExplicitStopRef.current) {
       console.log(`[SESSION gen=${interruptGeneration}] interrupt() → transitioning to listening`);
       setSessionState('listening');
-    } else if (isExplicitStopRef.current) {
+
+      // 5. Ensure recognition is actively capturing incoming speech.
+      // If recognition was terminated by mobile Chrome during speech synthesis or stopped,
+      // re-launch a fresh recognition instance immediately!
+      if (startRecognitionInstanceRef.current) {
+        startRecognitionInstanceRef.current();
+      } else if (recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch (e: any) {
+          if (e.name !== 'InvalidStateError') {
+            console.warn('[SESSION] Failed to resume recognition on interrupt:', e);
+          }
+        }
+      }
+    } else {
       setSessionState('idle');
     }
   }, [stopSpeaking, onInterrupted]);
@@ -505,230 +527,212 @@ export const useVoiceSession = (
       console.log('[SESSION] Mobile device detected: skipping concurrent getUserMedia VAD to avoid hardware microphone lock.');
     }
 
-    try {
-      const recognition = new SpeechRecognitionClass();
-      // On mobile browsers (especially Android Chrome), continuous=true causes immediate crashes or early timeouts.
-      // Use continuous=false on mobile (with controlled restart) and continuous=true on desktop.
-      recognition.continuous = !isMobile;
-      recognition.interimResults = true;
-      recognition.lang = lang;
-      // maxAlternatives=1 reduces internal processing overhead and speeds up result delivery
-      recognition.maxAlternatives = 1;
-
-      // Native SpeechRecognition audio activity hooks for mobile waveform feedback
-      if (isMobile) {
-        recognition.onsoundstart = () => {
-          setAudioLevel(45);
-        };
-        recognition.onspeechstart = () => {
-          setAudioLevel(75);
-          pulseMobileAudioLevel();
-        };
-        recognition.onspeechend = () => {
-          pulseMobileAudioLevel();
-        };
-        recognition.onsoundend = () => {
-          setTimeout(() => setAudioLevel(0), 200);
-        };
+    // Helper to instantiate and start a clean SpeechRecognition instance
+    const startRecognitionInstance = () => {
+      if (isExplicitStopRef.current || sessionGenerationRef.current !== currentGen) {
+        return;
       }
 
-      recognition.onstart = () => {
-        lastStartTimeRef.current = Date.now();
-        setSessionState('listening');
-        setError(null);
-      };
-
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        let finalized = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const res = event.results[i];
-          const text = res[0]?.transcript || '';
-          if (res.isFinal) {
-            finalized += text;
-          } else {
-            interim += text;
+      try {
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.abort();
+          } catch {
+            // ignore
           }
+          recognitionRef.current = null;
         }
 
-        // Helper: Validate if transcript contains genuine human speech words
-        // Rejects non-speech artifacts, empty strings, punctuation, or single random letters
-        const isGenuineSpeech = (str: string): boolean => {
-          if (!str) return false;
-          const cleaned = str.trim();
-          if (cleaned.length < 2) return false;
-          // Must contain at least one word of 2+ alphanumeric characters or multiple words
-          return /[a-zA-Z0-9]{2,}/.test(cleaned) || /^[a-zA-Z0-9]\s+[a-zA-Z0-9]/.test(cleaned);
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = !isMobile;
+        recognition.interimResults = true;
+        recognition.lang = lang;
+        recognition.maxAlternatives = 1;
+
+        if (isMobile) {
+          recognition.onsoundstart = () => {
+            setAudioLevel(45);
+          };
+          recognition.onspeechstart = () => {
+            setAudioLevel(75);
+            pulseMobileAudioLevel();
+          };
+          recognition.onspeechend = () => {
+            pulseMobileAudioLevel();
+          };
+          recognition.onsoundend = () => {
+            setTimeout(() => setAudioLevel(0), 200);
+          };
+        }
+
+        recognition.onstart = () => {
+          lastStartTimeRef.current = Date.now();
+          setSessionState('listening');
+          setError(null);
         };
 
-        // When user produces interim speech
-        if (interim) {
-          if (isMobile) {
-            pulseMobileAudioLevel();
-          }
-          const trimmedInterim = interim.trim();
-          setInterimTranscript(trimmedInterim);
-          if (onInterimTranscript) onInterimTranscript(trimmedInterim);
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          let finalized = '';
 
-          // SPEECH-CONFIRMED BARGE-IN INTERRUPTION:
-          // If assistant was speaking, only interrupt if genuine human speech words are confirmed!
-          // Background noise, mic pops, fan hum, keyboard clatter that produce empty/whitespace
-          // or single character noise will NOT silence the assistant.
-          if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
-            if (isGenuineSpeech(trimmedInterim)) {
-              console.log('[STT] Confirmed speech barge-in:', trimmedInterim);
-              interrupt(`Confirmed speech: "${trimmedInterim}"`);
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const res = event.results[i];
+            const text = res[0]?.transcript || '';
+            if (res.isFinal) {
+              finalized += text;
             } else {
-              console.log('[STT] Ignored non-speech interim noise while speaking:', trimmedInterim);
+              interim += text;
             }
           }
 
-          setSessionState('user_speaking');
-        }
+          // Helper: Validate if transcript contains genuine human speech words
+          const isGenuineSpeech = (str: string): boolean => {
+            if (!str) return false;
+            const cleaned = str.trim();
+            if (cleaned.length < 2) return false;
+            // Immediate match for "stop" (case-insensitive) or any 2+ character word
+            if (/^\b(stop|halt|cancel|quiet|pause)\b/i.test(cleaned)) return true;
+            return /[a-zA-Z0-9]{2,}/.test(cleaned) || /^[a-zA-Z0-9]\s+[a-zA-Z0-9]/.test(cleaned);
+          };
 
-        // When user finishes a segment
-        if (finalized) {
-          if (isMobile) {
-            pulseMobileAudioLevel();
+          // When user produces interim speech
+          if (interim) {
+            if (isMobile) {
+              pulseMobileAudioLevel();
+            }
+            const trimmedInterim = interim.trim();
+            setInterimTranscript(trimmedInterim);
+            if (onInterimTranscript) onInterimTranscript(trimmedInterim);
+
+            // SPEECH-CONFIRMED BARGE-IN INTERRUPTION:
+            if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
+              if (isGenuineSpeech(trimmedInterim)) {
+                console.log('[STT] Confirmed speech barge-in (interim):', trimmedInterim);
+                interrupt(`Confirmed speech: "${trimmedInterim}"`);
+              } else {
+                console.log('[STT] Ignored non-speech interim noise while speaking:', trimmedInterim);
+              }
+            }
+
+            setSessionState('user_speaking');
           }
-          const trimmed = finalized.trim();
 
-          // If assistant was speaking and this is the first finalized result, confirm barge-in
-          if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
-            if (isGenuineSpeech(trimmed)) {
-              interrupt(`Confirmed final speech: "${trimmed}"`);
+          // When user finishes a segment
+          if (finalized) {
+            if (isMobile) {
+              pulseMobileAudioLevel();
+            }
+            const trimmed = finalized.trim();
+
+            // If assistant was speaking and this is the first finalized result, confirm barge-in
+            if (stateRef.current === 'assistant_speaking' || stateRef.current === 'processing') {
+              if (isGenuineSpeech(trimmed)) {
+                console.log('[STT] Confirmed speech barge-in (final):', trimmed);
+                interrupt(`Confirmed final speech: "${trimmed}"`);
+              }
+            }
+
+            // Deduplication guard
+            if (isGenuineSpeech(trimmed) && trimmed !== lastSubmittedTranscriptRef.current) {
+              lastSubmittedTranscriptRef.current = trimmed;
+              setFinalTranscript((prev) => (prev ? `${prev} ${trimmed}` : trimmed));
+              setInterimTranscript('');
+              if (onFinalTranscript) onFinalTranscript(trimmed);
+            } else if (trimmed) {
+              console.log('[STT] Duplicate or non-speech final transcript suppressed:', trimmed);
+              setInterimTranscript('');
+            }
+
+            // Do not overwrite state if assistant has transitioned to speaking or processing
+            if (stateRef.current !== 'assistant_speaking' && stateRef.current !== 'processing' && stateRef.current !== 'executing') {
+              setSessionState('listening');
             }
           }
+        };
 
-          // Deduplication guard: Chrome restarts recognition internally and can re-fire the same
-          // final transcript on the onresult event. Skip if we already submitted this exact text.
-          if (isGenuineSpeech(trimmed) && trimmed !== lastSubmittedTranscriptRef.current) {
-            lastSubmittedTranscriptRef.current = trimmed;
-            setFinalTranscript((prev) => (prev ? `${prev} ${trimmed}` : trimmed));
-            setInterimTranscript('');
-            if (onFinalTranscript) onFinalTranscript(trimmed);
-          } else if (trimmed) {
-            console.log('[STT] Duplicate or non-speech final transcript suppressed:', trimmed);
-            setInterimTranscript('');
+        recognition.onerror = (event: any) => {
+          if (event.error === 'no-speech') {
+            // Non-fatal, keep listening
+            return;
           }
-          // Do not overwrite state if assistant has transitioned to speaking or processing
-          if (stateRef.current !== 'assistant_speaking' && stateRef.current !== 'processing' && stateRef.current !== 'executing') {
-            setSessionState('listening');
-          }
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        if (event.error === 'no-speech') {
-          // Non-fatal, keep listening
-          return;
-        }
-        if (event.error === 'aborted') {
-          // Intentional abort
-          return;
-        }
-
-        let userMsg = `Speech recognition error: ${event.error}`;
-        if (event.error === 'not-allowed' || event.error === 'permission-denied') {
-          userMsg = 'Microphone permission was denied. Please allow microphone access.';
-        }
-
-        setError(userMsg);
-        setSessionState('error');
-        if (onError) onError(userMsg);
-      };
-
-      recognition.onend = () => {
-        // Continuous session: If user didn't explicitly end session, auto-restart to stay always-ready!
-        if (!isExplicitStopRef.current && stateRef.current !== 'error' && stateRef.current !== 'idle') {
-          // If a new session generation started, discard this instance
-          if (sessionGenerationRef.current !== currentGen) {
+          if (event.error === 'aborted') {
+            // Intentional abort
             return;
           }
 
-          const sessionDuration = Date.now() - lastStartTimeRef.current;
-          // If the recognition session ended in under 1 second without user stopping it,
-          // count it as a quick-end to detect infinite rapid-looping
-          if (sessionDuration < 1000) {
-            consecutiveQuickEndsRef.current += 1;
-          } else {
-            consecutiveQuickEndsRef.current = 0;
+          let userMsg = `Speech recognition error: ${event.error}`;
+          if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+            userMsg = 'Microphone permission was denied. Please allow microphone access.';
           }
 
-          // Safety guard: if 5 consecutive quick-ends occur, throttle or stop to avoid infinite mic beeping
-          if (consecutiveQuickEndsRef.current >= 5) {
-            console.warn('[STT] Multiple rapid recognition disconnects detected. Pausing auto-restart to prevent mic loop.');
-            consecutiveQuickEndsRef.current = 0;
-            setError('Voice recognition paused due to repeated interruptions. Click Start Conversation to resume.');
-            setSessionState('idle');
-            return;
-          }
+          setError(userMsg);
+          setSessionState('error');
+          if (onError) onError(userMsg);
+        };
 
-          // Delay restart (desktop: 150ms buffer, mobile: 400ms buffer to allow Android audio system to release)
-          const restartDelay = isMobile ? 400 : 150;
-
-          if (restartTimerRef.current) {
-            clearTimeout(restartTimerRef.current);
-          }
-
-          restartTimerRef.current = setTimeout(() => {
-            restartTimerRef.current = null;
-            if (isExplicitStopRef.current || sessionGenerationRef.current !== currentGen) {
+        recognition.onend = () => {
+          // Continuous session: If user didn't explicitly end session, auto-restart to stay always-ready!
+          if (!isExplicitStopRef.current && stateRef.current !== 'error' && stateRef.current !== 'idle') {
+            if (sessionGenerationRef.current !== currentGen) {
               return;
             }
 
-            try {
-              if (isMobile) {
-                // On mobile, re-instantiating SpeechRecognition prevents zombie instances
-                // and DOMException: Failed to execute 'start' on 'SpeechRecognition': recognition has already started
-                try {
-                  if (recognitionRef.current) {
-                    recognitionRef.current.abort();
-                  }
-                } catch {
-                  // ignore
-                }
+            const sessionDuration = Date.now() - lastStartTimeRef.current;
+            if (sessionDuration < 1000) {
+              consecutiveQuickEndsRef.current += 1;
+            } else {
+              consecutiveQuickEndsRef.current = 0;
+            }
 
-                const freshRecognition = new SpeechRecognitionClass();
-                freshRecognition.continuous = false;
-                freshRecognition.interimResults = true;
-                freshRecognition.lang = lang;
-                freshRecognition.maxAlternatives = 1;
-                freshRecognition.onsoundstart = recognition.onsoundstart;
-                freshRecognition.onspeechstart = recognition.onspeechstart;
-                freshRecognition.onspeechend = recognition.onspeechend;
-                freshRecognition.onsoundend = recognition.onsoundend;
-                freshRecognition.onstart = recognition.onstart;
-                freshRecognition.onresult = recognition.onresult;
-                freshRecognition.onerror = recognition.onerror;
-                freshRecognition.onend = recognition.onend;
+            // Safety guard: if 5 consecutive quick-ends occur, throttle to prevent mic loops
+            if (consecutiveQuickEndsRef.current >= 5) {
+              console.warn('[STT] Multiple rapid recognition disconnects detected. Pausing auto-restart to prevent mic loop.');
+              consecutiveQuickEndsRef.current = 0;
+              setError('Voice recognition paused due to repeated interruptions. Click Start Conversation to resume.');
+              setSessionState('idle');
+              return;
+            }
 
-                recognitionRef.current = freshRecognition;
-                freshRecognition.start();
-                console.log(`[STT] Fresh mobile recognition instance restarted after controlled ${restartDelay}ms delay`);
-              } else if (recognitionRef.current) {
-                recognitionRef.current.start();
-                console.log(`[STT] Desktop recognition auto-restarted after controlled ${restartDelay}ms delay`);
-              }
-            } catch (e: any) {
-              if (e.name === 'InvalidStateError') {
-                // Recognition is already starting (race between our restart and browser's internal lifecycle).
-                // Safe to ignore — recognition will fire onstart itself.
-                console.log('[STT] Restart skipped — recognition already starting (InvalidStateError, safe to ignore)');
+            const restartDelay = isMobile ? 350 : 150;
+
+            if (restartTimerRef.current) {
+              clearTimeout(restartTimerRef.current);
+            }
+
+            restartTimerRef.current = setTimeout(() => {
+              restartTimerRef.current = null;
+              if (isExplicitStopRef.current || sessionGenerationRef.current !== currentGen) {
                 return;
               }
-              console.warn('[STT] Recognition restart failed with unexpected error:', e.name, e.message);
-              setSessionState('error');
-            }
-          }, restartDelay);
-        } else if (isExplicitStopRef.current) {
-          setSessionState('idle');
-        }
-      };
 
-      recognitionRef.current = recognition;
-      recognition.start();
+              if (isMobile) {
+                startRecognitionInstance();
+              } else if (recognitionRef.current) {
+                try {
+                  recognitionRef.current.start();
+                } catch (e: any) {
+                  if (e.name !== 'InvalidStateError') {
+                    console.warn('[STT] Desktop recognition restart failed:', e);
+                  }
+                }
+              }
+            }, restartDelay);
+          } else if (isExplicitStopRef.current) {
+            setSessionState('idle');
+          }
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch (err: any) {
+        console.warn('[STT] Error creating or starting recognition instance:', err);
+      }
+    };
+
+    startRecognitionInstanceRef.current = startRecognitionInstance;
+
+    try {
+      startRecognitionInstance();
     } catch (err: any) {
       setError(err.message || 'Could not start voice session');
       setSessionState('error');
